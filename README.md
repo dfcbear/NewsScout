@@ -1,9 +1,9 @@
-﻿# NewsScout 🚀
+# NewsScout 🚀
 
 **Autonomous AI Breakthrough Scout & Audio-Digest Pipeline**  
 Designed for 24/7 self-hosted operation on Raspberry Pi 5 (8GB, ARM64) and Docker Compose.
 
-📖 **Ausführliches deutsches Handbuch**: Siehe [HANDBUCH.md](file:///c:/Users/Racing_Bear/Documents/Antigravity/agent_harness_test/HANDBUCH.md) für Setup, UX-Mockups, Telegram-Befehle und Troubleshooting.
+📖 **Ausführliches deutsches Handbuch**: Siehe [HANDBUCH.md](HANDBUCH.md) für Setup, UX-Mockups, Telegram-Befehle und Troubleshooting.
 
 ---
 
@@ -48,4 +48,4 @@ Access the dashboard at `http://localhost:8000` (or over Tailscale from your pho
 ---
 
 ## License
-MIT License. Open Source & Self-Hosted.
+Distributed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).

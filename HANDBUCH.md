@@ -1,4 +1,4 @@
-﻿# NewsScout — Anwender- & Betriebshandbuch 📖
+# NewsScout — Anwender- & Betriebshandbuch 📖
 
 > **Autonome KI-Durchbruchs-Erkennung & Zweistimmiger Audio-Digest**  
 > Konzipiert für den 24/7-Dauerbetrieb auf dem **Raspberry Pi 5 (8GB RAM)** mit Fernzugriff über **Tailscale Zero-Trust**.
@@ -244,7 +244,7 @@ ssh pi@newsscout.local
 Klone das Projekt direkt von GitHub:
 
 ```bash
-git clone <Ihr-Repo-Pfad> ~/NewsScout
+git clone https://github.com/dfcbear/NewsScout.git ~/NewsScout
 cd ~/NewsScout
 ```
 
@@ -341,10 +341,8 @@ docker compose --profile all up -d
 docker compose ps
 ```
 
-*Ausgabe:*
-```text
-NAME          IMAGE                 COMMAND                  SERVICE       CREATED         STATUS                   PORTS
-newsscout   newsscout-service   "python -m signalscou…"   newsscout   1 minute ago    Up 1 minute (healthy)    0.0.0.0:8000->8000/tcp
+NAME        IMAGE               COMMAND                  SERVICE     CREATED        STATUS                 PORTS
+newsscout   newsscout-service   "python -m newsscout.…"  newsscout   1 minute ago   Up 1 minute (healthy)  0.0.0.0:8000->8000/tcp
 ```
 
 Sobald der Status auf `(healthy)` steht, ist das Dashboard unter `http://<Tailscale-IP>:8000` erreichbar!
