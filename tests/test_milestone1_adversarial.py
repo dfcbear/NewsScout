@@ -2,7 +2,7 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Empirical Adversarial Challenge Suite for TASK-08 Milestone 1:
 1. Concurrency: Multi-threaded apply_migrations (25+ threads, fresh DB, partially migrated DB, competing locks)
-2. Multi-Channel Feedback: Burst recording across 25+ workers with WhatsApp phone numbers, Signal UUIDs, Telegram IDs, Web users
+2. Multi-Channel Feedback: Burst recording across 25+ workers with Signal phone numbers and UUIDs, Telegram IDs, Web users
 3. Constraint Collisions: Simultaneous UPSERT races on same (breakthrough_id, user_identifier), whitespace & legacy collision
 4. SQL Injection Attacks: Injections in user_identifier, notes, source, rating
 5. Foreign Key Integrity & Boundary Payloads: Non-existent breakthrough_id, 500KB notes, multi-channel few-shot calibration
@@ -207,7 +207,7 @@ class TestAdversarialMigration002Concurrency:
         conn = sync_db_conn
         apply_migrations(conn=conn)
 
-        # Seed data in v2: numeric Telegram ID, +phone WhatsApp, and web
+        # Seed data in v2: numeric Telegram ID, +phone Signal, and web
         conn.execute("INSERT INTO raw_items (id, source, source_id, title, url) VALUES (1, 't', '1', 'T', 'U');")
         conn.execute("""
             INSERT INTO breakthroughs (id, raw_item_id, title, breakthrough_score, roi_score, category,
@@ -215,7 +215,7 @@ class TestAdversarialMigration002Concurrency:
             VALUES (1, 1, 'BT1', 9.0, 9.0, 'core', 'tldr', 'uc', 'comp', 'qs', 'hw', 'lic', 'md');
         """)
         conn.execute("INSERT INTO feedback (breakthrough_id, rating, user_identifier, source) VALUES (1, 'hit', '12345', 'telegram');")
-        conn.execute("INSERT INTO feedback (breakthrough_id, rating, user_identifier, source) VALUES (1, 'inspire', '+491701234567', 'whatsapp');")
+        conn.execute("INSERT INTO feedback (breakthrough_id, rating, user_identifier, source) VALUES (1, 'inspire', '+491701234567', 'signal');")
         conn.execute("INSERT INTO feedback (breakthrough_id, rating, user_identifier, source) VALUES (1, 'known', 'default', 'web');")
 
         # 1. Rollback
@@ -226,7 +226,7 @@ class TestAdversarialMigration002Concurrency:
         v1_rows = conn.execute("SELECT breakthrough_id, rating, telegram_user_id, source FROM feedback ORDER BY id ASC;").fetchall()
         assert len(v1_rows) == 3
         assert v1_rows[0][2] == 12345
-        assert v1_rows[1][2] is None  # WhatsApp phone with + -> NULL in v1
+        assert v1_rows[1][2] is None  # Signal phone with + -> NULL in v1
         assert v1_rows[2][2] is None  # 'default' -> NULL in v1
 
         is_healthy, diag = verify_schema_integrity(conn)
@@ -361,14 +361,14 @@ class TestAdversarialMigration002Concurrency:
 # ============================================================================
 
 class TestAdversarialMultiChannelBurst:
-    """Stress-tests concurrent bursts across 25+ workers with WhatsApp phone numbers, Signal UUIDs, and Telegram IDs."""
+    """Stress-tests concurrent bursts across 25+ workers with Signal phone numbers and UUIDs, and Telegram IDs."""
 
     @pytest.mark.asyncio
     async def test_concurrent_burst_25_workers_diverse_channels_and_identifiers(
         self, migrated_db: Database, test_settings: Settings, factory: Any
     ):
         """25 workers simultaneously recording feedback with varied channel types and identifiers:
-        - WhatsApp: international phone numbers with spaces, plus signs, dashes
+        - Signal: international phone numbers with spaces, plus signs, dashes
         - Signal: UUIDs with hyphens, uppercase, braces
         - Telegram: numeric IDs, negative chat IDs
         - Web: alphanumeric usernames and session keys
@@ -400,12 +400,12 @@ class TestAdversarialMultiChannelBurst:
 
         # Define 25 diverse user profiles
         test_profiles = [
-            # WhatsApp (5)
-            {"user": "+49 170 1234567", "source": "whatsapp", "rating": FeedbackRating.HIT},
-            {"user": "+1-800-555-0199", "source": "whatsapp", "rating": FeedbackRating.INSPIRE},
-            {"user": "+81 90 1234 5678", "source": "whatsapp", "rating": FeedbackRating.HIT},
-            {"user": "0044 20 7946 0912", "source": "whatsapp", "rating": FeedbackRating.HYPE},
-            {"user": "+33.6.12.34.56.78", "source": "whatsapp", "rating": FeedbackRating.KNOWN},
+            # Signal phone (5)
+            {"user": "+49 170 1234567", "source": "signal", "rating": FeedbackRating.HIT},
+            {"user": "+1-800-555-0199", "source": "signal", "rating": FeedbackRating.INSPIRE},
+            {"user": "+81 90 1234 5678", "source": "signal", "rating": FeedbackRating.HIT},
+            {"user": "0044 20 7946 0912", "source": "signal", "rating": FeedbackRating.HYPE},
+            {"user": "+33.6.12.34.56.78", "source": "signal", "rating": FeedbackRating.KNOWN},
             # Signal (5)
             {"user": "3b9a0c24-4f81-428a-86a1-305f884a1e90", "source": "signal", "rating": FeedbackRating.HIT},
             {"user": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890", "source": "signal", "rating": FeedbackRating.INSPIRE},
@@ -427,7 +427,7 @@ class TestAdversarialMultiChannelBurst:
             # Edge / Unicode / Padded (5)
             {"user": "  padded_user_name  ", "source": "telegram", "rating": FeedbackRating.HIT},
             {"user": "münchen_ü_user", "source": "web", "rating": FeedbackRating.INSPIRE},
-            {"user": "user_with_emoji_🎯", "source": "whatsapp", "rating": FeedbackRating.HIT},
+            {"user": "user_with_emoji_🎯", "source": "signal", "rating": FeedbackRating.HIT},
             {"user": "user.name+tag@sub.domain", "source": "signal", "rating": FeedbackRating.KNOWN},
             {"user": "default", "source": "web", "rating": FeedbackRating.HYPE},
         ]
@@ -517,7 +517,7 @@ class TestAdversarialConstraintCollisions:
                     breakthrough_id=bt_id,
                     rating=selected_rating,
                     user_identifier=target_user,
-                    source="whatsapp",
+                    source="signal",
                     notes=f"Race attempt #{idx}",
                 )
             except Exception as exc:
@@ -654,7 +654,7 @@ class TestAdversarialSQLInjectionAttempts:
             breakthrough_id=bt_id,
             rating=FeedbackRating.HIT,
             user_identifier=malicious_user_id,
-            source="whatsapp",
+            source="signal",
             notes="SQLi attempt in user_identifier",
         )
 
@@ -748,7 +748,7 @@ class TestAdversarialSQLInjectionAttempts:
                 breakthrough_id=99999999,
                 rating=FeedbackRating.HIT,
                 user_identifier="some_user",
-                source="whatsapp",
+                source="signal",
             )
 
     @pytest.mark.asyncio
@@ -844,7 +844,7 @@ class TestAdversarialBoundaryAndStressCases:
             breakthrough_id=bt_id,
             rating=FeedbackRating.INSPIRE,
             user_identifier="+4917011122233",
-            source="whatsapp",
+            source="signal",
             notes=large_text,
         )
 
@@ -895,7 +895,7 @@ class TestAdversarialBoundaryAndStressCases:
         self, migrated_db: Database, test_settings: Settings, factory: Any
     ):
         """Verifies that get_few_shot_exemplars and get_preference_stats correctly incorporate
-        feedback from WhatsApp, Signal, Web, and Telegram.
+        feedback from Signal, Web, and Telegram.
         """
         service = PreferencesService(db=migrated_db, settings=test_settings)
 
@@ -911,8 +911,8 @@ class TestAdversarialBoundaryAndStressCases:
             """, (bt.raw_item_id, bt.title, bt.breakthrough_score, bt.roi_score, bt.category.value, bt.tldr, bt.use_case, bt.comparison, bt.quickstart, bt.hardware_requirements, bt.license, bt.card_markdown))
             bt_ids.append(bt_id)
 
-        # 1. WhatsApp HIT
-        await service.record_feedback(breakthrough_id=bt_ids[0], rating=FeedbackRating.HIT, user_identifier="+49170123456", source="whatsapp")
+        # 1. Signal HIT
+        await service.record_feedback(breakthrough_id=bt_ids[0], rating=FeedbackRating.HIT, user_identifier="+49170123456", source="signal")
         # 2. Signal INSPIRE
         await service.record_feedback(breakthrough_id=bt_ids[1], rating=FeedbackRating.INSPIRE, user_identifier=str(uuid.uuid4()), source="signal")
         # 3. Web HYPE
@@ -935,7 +935,7 @@ class TestAdversarialBoundaryAndStressCases:
         pos_titles = [e.title for e in exemplars.positive]
         neg_titles = [e.title for e in exemplars.negative]
 
-        # The 2 positive ones must be from WhatsApp (bt 0) and Signal (bt 1)
+        # The 2 positive ones must be from Signal (bt 0 and bt 1)
         assert "Calib Tool 0" in pos_titles
         assert "Calib Tool 1" in pos_titles
         # The negative one must be from Web (bt 2)

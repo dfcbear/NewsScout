@@ -1,4 +1,4 @@
-﻿"""tests/test_adversarial_m3.py
+"""tests/test_adversarial_m3.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Adversarial challenge test suite for Milestone 3 (InboundRouter & Messenger Gateways).
 Stress-tests malformed payloads, emoji variations, ambiguous keywords,
@@ -126,71 +126,6 @@ class TestMalformedWebhookPayloads:
     @pytest.fixture
     def router(self) -> InboundRouter:
         return InboundRouter()
-
-    @pytest.mark.asyncio
-    async def test_waha_empty_payload(self, router: InboundRouter):
-        """Empty payload dictionary must return ignored or safe error without crash."""
-        res = await router.handle_whatsapp_webhook({})
-        assert res.action == "ignored"
-        assert res.success is True
-
-    @pytest.mark.asyncio
-    async def test_waha_payload_none_value(self, router: InboundRouter):
-        """payload key is explicitly None."""
-        payload = {"event": "message", "payload": None}
-        res = await router.handle_whatsapp_webhook(payload)
-        assert res.action == "empty"
-        assert res.success is True
-
-    @pytest.mark.asyncio
-    async def test_waha_reaction_payload_none(self, router: InboundRouter):
-        """event is reaction but payload is None."""
-        payload = {"event": "message.reaction", "payload": None}
-        res = await router.handle_whatsapp_webhook(payload)
-        assert res.action in ("empty", "unknown", "ignored")
-
-    @pytest.mark.asyncio
-    async def test_waha_reaction_nested_none_or_missing(self, router: InboundRouter):
-        """reaction object has missing text or messageId."""
-        payload = {
-            "event": "message.reaction",
-            "payload": {
-                "from": "491701234567@c.us",
-                "reaction": {"text": None, "messageId": None},
-            },
-        }
-        res = await router.handle_whatsapp_webhook(payload)
-        assert res.action in ("empty", "unknown", "ignored")
-
-    @pytest.mark.asyncio
-    async def test_waha_unexpected_payload_types(self, router: InboundRouter):
-        """payload field is a string or list instead of dict."""
-        # Non-dict payload
-        payload = {"event": "message", "payload": "this is a raw string, not a dict"}
-        try:
-            res = await router.handle_whatsapp_webhook(payload)
-            # If handled gracefully
-            assert isinstance(res, InboundHandlingResult)
-        except AttributeError as err:
-            # Empirical verification: does it raise AttributeError?
-            pytest.fail(f"VULNERABILITY: InboundRouter crashed on non-dict payload: {err}")
-
-    @pytest.mark.asyncio
-    async def test_waha_unexpected_data_types(self, router: InboundRouter):
-        """payload._data is a list or string instead of dict."""
-        payload = {
-            "event": "message",
-            "payload": {
-                "body": "hit",
-                "from": "491701234567@c.us",
-                "_data": "not a dictionary",
-            },
-        }
-        try:
-            res = await router.handle_whatsapp_webhook(payload)
-            assert isinstance(res, InboundHandlingResult)
-        except AttributeError as err:
-            pytest.fail(f"VULNERABILITY: InboundRouter crashed on non-dict _data: {err}")
 
     @pytest.mark.asyncio
     async def test_signal_empty_payload(self, router: InboundRouter):
@@ -359,7 +294,7 @@ class TestBreakthroughWaterfallAdversarial:
         Does Tier 1 hijack card ID to 1, or does Tier 2 resolve to quoted card 99?"""
         router = InboundRouter()
         resolved_id = await router.resolve_breakthrough_id(
-            channel="whatsapp",
+            channel="signal",
             quoted_text="⚡ Docling Document Converter [#99]\nScore: 9.2/10",
             message_text="1",  # User replies '1' as rating choice
         )
@@ -372,7 +307,7 @@ class TestBreakthroughWaterfallAdversarial:
         Does it resolve to 4090 or 99?"""
         router = InboundRouter()
         resolved_id = await router.resolve_breakthrough_id(
-            channel="whatsapp",
+            channel="signal",
             quoted_text="⚡ Docling Document Converter [#99]\nScore: 9.2/10",
             message_text="Läuft super auf RTX 4090",
         )
@@ -385,7 +320,7 @@ class TestBreakthroughWaterfallAdversarial:
         router = InboundRouter()
         card_text = "⚡ #1 AI Agent Framework for Developers [#42]\nScore: 9.5/10"
         resolved_id = await router.resolve_breakthrough_id(
-            channel="whatsapp",
+            channel="signal",
             quoted_text=card_text,
             message_text="hit",
         )
@@ -423,7 +358,7 @@ class TestBreakthroughWaterfallAdversarial:
         router = InboundRouter(db=mock_db)
 
         resolved = await router.resolve_breakthrough_id(
-            channel="whatsapp",
+            channel="signal",
             message_text="hit",
         )
         # In MockDatabase, latest non-discard is id 99 (id 105 is discard)
@@ -445,7 +380,7 @@ class TestSlashCommandParsingAdversarial:
     @pytest.mark.asyncio
     async def test_track_empty_arguments(self, router: InboundRouter):
         """User sends just '/track' or '/track    ' without repo."""
-        res1 = await router._handle_slash_command("whatsapp", "/track", "user1")
+        res1 = await router._handle_slash_command("signal", "/track", "user1")
         res2 = await router._handle_slash_command("signal", "/track    ", "user1")
 
         print(f"\n[SLASH-TRACK-EMPTY] '/track' -> action: {res1.action}, success: {res1.success}")
@@ -455,25 +390,25 @@ class TestSlashCommandParsingAdversarial:
     @pytest.mark.asyncio
     async def test_interest_empty_arguments(self, router: InboundRouter):
         """User sends just '/interest' or '/interest   ' without keyword."""
-        res = await router._handle_slash_command("whatsapp", "/interest", "user1")
+        res = await router._handle_slash_command("signal", "/interest", "user1")
         print(f"\n[SLASH-INTEREST-EMPTY] '/interest' -> action: {res.action}, success: {res.success}")
         assert res.success is False or res.action == "unknown"
 
     @pytest.mark.asyncio
     async def test_track_with_full_github_urls(self, router: InboundRouter):
         """User sends '/track https://github.com/foo/bar.git' or other variants."""
-        res_https = await router._handle_slash_command("whatsapp", "/track https://github.com/foo/bar.git", "user1")
+        res_https = await router._handle_slash_command("signal", "/track https://github.com/foo/bar.git", "user1")
         assert res_https.success is True
         assert "foo/bar" in res_https.reply_text
 
         # What about http://?
-        res_http = await router._handle_slash_command("whatsapp", "/track http://github.com/foo/bar.git", "user1")
+        res_http = await router._handle_slash_command("signal", "/track http://github.com/foo/bar.git", "user1")
         print(f"\n[SLASH-TRACK-HTTP] 'http://github.com/foo/bar.git' -> {res_http.reply_text}")
 
     @pytest.mark.asyncio
     async def test_interest_with_special_characters(self, router: InboundRouter):
         """User sends '/interest LLM & RAG' or '/interest C++ / C#'."""
-        res1 = await router._handle_slash_command("whatsapp", "/interest LLM & RAG", "user1")
+        res1 = await router._handle_slash_command("signal", "/interest LLM & RAG", "user1")
         assert res1.success is True
         assert "llm & rag" in res1.reply_text.lower()
 
@@ -484,21 +419,21 @@ class TestSlashCommandParsingAdversarial:
     @pytest.mark.asyncio
     async def test_command_case_insensitivity(self, router: InboundRouter):
         """Slash commands in UPPERCASE or MixedCase: /TRACK, /INTEREST, /RADAR, /HELP."""
-        res_track = await router._handle_slash_command("whatsapp", "/TRACK foo/bar", "user1")
+        res_track = await router._handle_slash_command("signal", "/TRACK foo/bar", "user1")
         assert res_track.success is True
         assert res_track.command == "track"
 
-        res_radar = await router._handle_slash_command("whatsapp", "/RADAR", "user1")
+        res_radar = await router._handle_slash_command("signal", "/RADAR", "user1")
         assert res_radar.success is True
         assert res_radar.command == "radar"
 
-        res_help = await router._handle_slash_command("whatsapp", "/HELP", "user1")
+        res_help = await router._handle_slash_command("signal", "/HELP", "user1")
         assert res_help.success is True
         assert res_help.command == "help"
 
     @pytest.mark.asyncio
     async def test_extra_whitespace_in_commands(self, router: InboundRouter):
         """Leading/trailing and internal extra whitespace in slash commands."""
-        res = await router._handle_slash_command("whatsapp", "   /track    owner/repo    ", "user1")
+        res = await router._handle_slash_command("signal", "   /track    owner/repo    ", "user1")
         assert res.success is True
         assert "owner/repo" in res.reply_text

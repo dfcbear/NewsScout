@@ -1,6 +1,6 @@
-﻿"""newsscout.delivery.inbound
+"""newsscout.delivery.inbound
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Inbound interaction router for WhatsApp, Signal, and multi-messenger interactions.
+Inbound interaction router for Signal, Telegram, and multi-messenger interactions.
 Parses emoji reactions, text keywords, card quote-replies, and slash commands.
 Persists ratings to PreferencesService and updates Topic Radar.
 """
@@ -23,7 +23,7 @@ logger = logging.getLogger("newsscout.delivery.inbound")
 @dataclass
 class InboundMessage:
     """Normalized representation of an inbound message or reaction."""
-    channel: str                          # "whatsapp", "signal", "telegram"
+    channel: str                          # "signal", "telegram"
     sender_id: str                        # phone number, Signal UUID, chat ID
     text: Optional[str] = None            # message body text
     reaction_emoji: Optional[str] = None  # emoji if reaction event
@@ -93,7 +93,7 @@ def parse_feedback_rating(input_str: str) -> Optional[FeedbackRating]:
 
 
 class InboundRouter:
-    """Routes and handles inbound interactions from WhatsApp, Signal, and Telegram."""
+    """Routes and handles inbound interactions from Signal and Telegram."""
 
     def __init__(
         self,
@@ -180,61 +180,6 @@ class InboundRouter:
                 return row["id"]
 
         return None
-
-    async def handle_whatsapp_webhook(self, payload: dict[str, Any]) -> InboundHandlingResult:
-        """Parses a WAHA (WhatsApp HTTP API) webhook payload."""
-        event = payload.get("event", "")
-        data = payload.get("payload", {}) or {}
-        if not isinstance(data, dict):
-            data = {}
-
-        if event == "message.reaction":
-            reaction = data.get("reaction", {}) or {}
-            emoji = reaction.get("text", "")
-            target_msg_id = reaction.get("messageId", "")
-            sender_id = data.get("from", "")
-            msg = InboundMessage(
-                channel="whatsapp",
-                sender_id=sender_id,
-                reaction_emoji=emoji,
-                quoted_message_id=str(target_msg_id) if target_msg_id else None,
-                raw_payload=payload,
-            )
-            return await self.process_message(msg)
-
-        elif event == "message":
-            body = data.get("body", "")
-            sender_id = data.get("from", "")
-            msg_id = data.get("id", "")
-
-            _data = data.get("_data", {})
-            if not isinstance(_data, dict):
-                _data = {}
-            quoted_msg = (
-                _data.get("quotedMsg", {})
-                or data.get("quotedMsg", {})
-                or {}
-            )
-            if not isinstance(quoted_msg, dict):
-                quoted_msg = {}
-            quoted_text = quoted_msg.get("body", "")
-            quoted_stanza = (
-                _data.get("quotedStanzaID")
-                or quoted_msg.get("id")
-            )
-
-            msg = InboundMessage(
-                channel="whatsapp",
-                sender_id=sender_id,
-                text=body,
-                message_id=str(msg_id) if msg_id else None,
-                quoted_message_id=str(quoted_stanza) if quoted_stanza else None,
-                quoted_text=quoted_text,
-                raw_payload=payload,
-            )
-            return await self.process_message(msg)
-
-        return InboundHandlingResult(action="ignored", success=True, channel="whatsapp")
 
     async def handle_signal_webhook(self, payload: dict[str, Any]) -> InboundHandlingResult:
         """Parses a signal-cli-rest-api webhook / event payload."""
@@ -469,48 +414,29 @@ class InboundRouter:
 
     def _format_feedback_reply(self, channel: str, rating: FeedbackRating) -> str:
         """Formats acknowledgment reply for rating."""
-        if channel == "whatsapp":
-            return f"Dankeschön! {rating.emoji} *{rating.label_de}* gespeichert."
-        elif channel == "signal":
+        if channel == "signal":
             return f"Dankeschön! {rating.emoji} **{rating.label_de}** gespeichert."
         return f"Dankeschön! {rating.emoji} <b>{rating.label_de}</b> gespeichert."
 
     def _format_track_success(self, channel: str, repo: str) -> str:
-        if channel == "whatsapp":
-            return f"✅ *Repository hinzugefügt*\n`{repo}` wird jetzt im Release-Radar überwacht."
-        elif channel == "signal":
+        if channel == "signal":
             return f"✅ **Repository hinzugefügt**\n`{repo}` wird jetzt im Release-Radar überwacht."
         return f"✅ <b>Repository hinzugefügt</b>\n<code>{repo}</code> wird jetzt im Release-Radar überwacht."
 
     def _format_interest_success(self, channel: str, kw: str) -> str:
-        if channel == "whatsapp":
-            return f"🎯 *Keyword hinzugefügt*\n'*{kw}*' ist jetzt im Hacker News Radar aktiv."
-        elif channel == "signal":
+        if channel == "signal":
             return f"🎯 **Keyword hinzugefügt**\n'**{kw}**' ist jetzt im Hacker News Radar aktiv."
         return f"🎯 <b>Keyword hinzugefügt</b>\n'<code>{kw}</code>' ist jetzt im Hacker News Radar aktiv."
 
     def _format_radar_reply(self, channel: str, repos: list[str], kws: list[str]) -> str:
         repos_str = "\n".join(f"• {r}" for r in repos) or "Keine"
         kws_str = ", ".join(kws) or "Standard"
-        if channel == "whatsapp":
-            return f"*📡 Aktueller NewsScout Themenradar*\n\n*GitHub Repositories:*\n{repos_str}\n\n*Custom Keywords:*\n{kws_str}"
-        elif channel == "signal":
+        if channel == "signal":
             return f"📡 **Aktueller NewsScout Themenradar**\n\n**GitHub Repositories:**\n{repos_str}\n\n**Custom Keywords:**\n{kws_str}"
         return f"📡 <b>Aktueller NewsScout Themenradar</b>\n\n<b>GitHub Repositories:</b>\n{repos_str}\n\n<b>Custom Keywords:</b>\n{kws_str}"
 
     def _format_help_reply(self, channel: str) -> str:
-        if channel == "whatsapp":
-            return (
-                "🤖 *NewsScout Befehle & Feedback*\n\n"
-                "• `/track <owner/repo>` — GitHub-Repo überwachen\n"
-                "• `/interest <keyword>` — HN-Keyword überwachen\n"
-                "• `/radar` — Aktive Themen & Repos anzeigen\n"
-                "• `/help` — Diese Hilfe anzeigen\n\n"
-                "*Feedback auf Karten:*\n"
-                "Antworte auf eine Karte mit Reaction oder Text:\n"
-                "🎯 Volltreffer | 💤 Zu banal / Hype | ✅ Kenne ich schon | 🚀 Geniale Inspiration"
-            )
-        elif channel == "signal":
+        if channel == "signal":
             return (
                 "🤖 **NewsScout Befehle & Feedback**\n\n"
                 "• `/track <owner/repo>` — GitHub-Repo überwachen\n"

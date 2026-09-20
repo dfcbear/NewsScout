@@ -286,11 +286,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "enabled": settings.has_telegram_credentials,
                 "chat_id": bool(settings.telegram_chat_id),
             },
-            "whatsapp": {
-                "enabled": settings.has_whatsapp_credentials,
-                "bridge_url": settings.whatsapp_bridge_url,
-                "recipients_count": len(settings.effective_whatsapp_recipients),
-            },
             "signal": {
                 "enabled": settings.has_signal_credentials,
                 "bridge_url": settings.signal_bridge_url,
@@ -309,9 +304,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/gateways/pairing/{channel}")
     async def api_gateway_pairing(channel: str) -> dict[str, Any]:
-        """Returns pairing and QR code status for WhatsApp or Signal gateways."""
+        """Returns pairing and QR code status for Signal or Telegram gateways."""
         channel_lower = channel.lower().strip()
-        if channel_lower not in ("whatsapp", "signal", "telegram"):
+        if channel_lower not in ("signal", "telegram"):
             raise HTTPException(status_code=400, detail=f"Unsupported channel: {channel}")
 
         from newsscout.delivery.dispatcher import create_default_dispatcher

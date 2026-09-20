@@ -1,6 +1,6 @@
-﻿"""newsscout.delivery
+"""newsscout.delivery
 ~~~~~~~~~~~~~~~~~~~~~~
-Unified delivery package: multi-messenger gateways (Telegram, WhatsApp, Signal),
+Unified delivery package: multi-messenger gateways (Telegram, Signal),
 delivery receipts, pairing QR status, delivery dispatcher, and inbound router.
 """
 
@@ -33,7 +33,6 @@ from newsscout.delivery.inbound import (
 from newsscout.delivery.signal_gateway import SignalGateway
 from newsscout.delivery.telegram import TelegramGateway
 from newsscout.delivery.telegram_bot import FEEDBACK_BUTTONS, TelegramBot
-from newsscout.delivery.whatsapp_gateway import WhatsAppGateway
 
 __all__ = [
     # Status constants
@@ -55,7 +54,6 @@ __all__ = [
     "DeliveryPayloadError",
     # Gateways & Bot
     "TelegramGateway",
-    "WhatsAppGateway",
     "SignalGateway",
     "TelegramBot",
     "FEEDBACK_BUTTONS",

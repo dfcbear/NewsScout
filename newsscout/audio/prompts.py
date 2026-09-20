@@ -1,4 +1,4 @@
-﻿"""newsscout.audio.prompts
+"""newsscout.audio.prompts
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 System instructions, prompt formatting, and Pydantic schemas for
 LLM-powered dialectic audio dialogue generation (Conrad & Katja).
@@ -188,6 +188,6 @@ Quickstart: {top_quickstart}
 ANFORDERUNGEN:
 - Kurzes, prägnantes Tagesfazit zwischen Conrad und Katja.
 - Klare Handlungsempfehlung für den heutigen Feierabend: Lohnt sich ein 15-Minuten-Spike?
-- Erinnerung an die Hörer: Interaktive Feedback-Buttons im Telegram-Bot bzw. Emoji-Reaktionen in WhatsApp/Signal (🎯 Hit, 💤 Hype, ✅ Bekannt, 🚀 Inspiration) nutzen.
+- Erinnerung an die Hörer: Interaktive Feedback-Buttons im Telegram-Bot bzw. Emoji-Reaktionen in Signal (🎯 Hit, 💤 Hype, ✅ Bekannt, 🚀 Inspiration) nutzen.
 - Freundliche Verabschiedung bis zur nächsten Ausgabe.
 """

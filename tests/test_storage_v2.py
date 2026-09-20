@@ -3,7 +3,7 @@
 Dedicated test suite for Migration 002 and Multi-Messenger Storage Evolution:
 - Schema migration from v1 to v2 preserving existing records
 - Rollback atomicity and idempotency
-- Multi-channel source constraints ('telegram', 'web', 'whatsapp', 'signal')
+- Multi-channel source constraints ('telegram', 'web', 'signal')
 - Multi-identifier UPSERT semantics (phone numbers, UUIDs, web users)
 - Pydantic models (FeedbackCreate, Feedback, FeedbackRating) validation
 """
@@ -99,7 +99,7 @@ class TestMigration002Evolution:
         assert "user_identifier" in cols_after
         assert "telegram_user_id" not in cols_after
 
-    def test_source_check_constraint_allows_whatsapp_and_signal(self, sync_db_conn: sqlite3.Connection):
+    def test_source_check_constraint_allows_signal(self, sync_db_conn: sqlite3.Connection):
         apply_migrations(conn=sync_db_conn)
         sync_db_conn.execute("INSERT INTO raw_items (id, source, source_id, title, url) VALUES (1, 'test', '1', 'Title', 'http://url');")
         sync_db_conn.execute("""
@@ -109,7 +109,7 @@ class TestMigration002Evolution:
         """)
 
         # Valid sources
-        for src in ["telegram", "web", "whatsapp", "signal"]:
+        for src in ["telegram", "web", "signal"]:
             sync_db_conn.execute(f"INSERT OR REPLACE INTO feedback (breakthrough_id, rating, user_identifier, source) VALUES (1, 'hit', '{src}_user', '{src}');")
 
         # Invalid source raises IntegrityError
@@ -133,16 +133,16 @@ class TestMultiMessengerPreferencesService:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, (bt.raw_item_id, bt.title, bt.breakthrough_score, bt.roi_score, bt.category.value, bt.tldr, bt.use_case, bt.comparison, bt.quickstart, bt.hardware_requirements, bt.license, bt.card_markdown))
 
-        # 1. WhatsApp feedback with phone number
+        # 1. Signal feedback with phone number
         fb_wa = await service.record_feedback(
             breakthrough_id=bt_id,
             rating=FeedbackRating.HIT,
             user_identifier="+491701234567",
-            source="whatsapp",
-            notes="Sent via WhatsApp reaction",
+            source="signal",
+            notes="Sent via Signal reaction",
         )
         assert fb_wa.user_identifier == "+491701234567"
-        assert fb_wa.source == "whatsapp"
+        assert fb_wa.source == "signal"
 
         # 2. Signal feedback with UUID
         fb_sig = await service.record_feedback(
@@ -178,12 +178,12 @@ class TestMultiMessengerPreferencesService:
         count = await migrated_db.fetch_val("SELECT COUNT(*) FROM feedback WHERE breakthrough_id = ?;", (bt_id,))
         assert count == 4
 
-        # 5. Test UPSERT: WhatsApp user updates vote to INSPIRE
+        # 5. Test UPSERT: Signal user updates vote to INSPIRE
         fb_wa_up = await service.record_feedback(
             breakthrough_id=bt_id,
             rating=FeedbackRating.INSPIRE,
             user_identifier="+491701234567",
-            source="whatsapp",
+            source="signal",
         )
         assert fb_wa_up.rating == FeedbackRating.INSPIRE
 

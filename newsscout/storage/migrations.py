@@ -182,7 +182,7 @@ CREATE TABLE feedback_v2 (
     breakthrough_id INTEGER NOT NULL REFERENCES breakthroughs(id) ON DELETE CASCADE,
     rating TEXT NOT NULL CHECK(rating IN ('hit', 'hype', 'known', 'inspire')),
     user_identifier TEXT NOT NULL DEFAULT 'default',
-    source TEXT NOT NULL DEFAULT 'telegram' CHECK(source IN ('telegram', 'web', 'whatsapp', 'signal')),
+    source TEXT NOT NULL DEFAULT 'telegram' CHECK(source IN ('telegram', 'web', 'signal')),
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(breakthrough_id, user_identifier)

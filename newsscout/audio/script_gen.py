@@ -560,7 +560,7 @@ class DialogueScriptGenerator:
             text=(
                 "Und wie immer: Wenn ihr eine andere Meinung dazu habt "
                 "oder das Tool laengst kennt, gebt uns Feedback – per Telegram-Button, "
-                "oder einfach als Emoji-Reaktion auf WhatsApp und Signal!"
+                "oder einfach als Emoji-Reaktion auf Signal und Telegram!"
             ),
         ))
 

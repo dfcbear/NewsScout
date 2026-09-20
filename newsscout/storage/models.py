@@ -1,4 +1,4 @@
-﻿"""newsscout.storage.models
+"""newsscout.storage.models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 Pydantic v2 data models for NewsScout domain entities, database records,
 and payload validation contracts.
@@ -174,7 +174,6 @@ class FeedbackRating(str, Enum):
 class FeedbackSource(str, Enum):
     TELEGRAM = "telegram"
     WEB = "web"
-    WHATSAPP = "whatsapp"
     SIGNAL = "signal"
 
 
@@ -660,7 +659,7 @@ class FeedbackCreate(BaseModel):
     )
     source: str = Field(
         default="telegram",
-        description="Origin channel: 'telegram', 'web', 'whatsapp', or 'signal'",
+        description="Origin channel: 'telegram', 'web', or 'signal'",
     )
     notes: Optional[str] = Field(default=None, description="Optional user commentary or context")
 
@@ -687,14 +686,14 @@ class FeedbackCreate(BaseModel):
     @field_validator("source")
     @classmethod
     def _validate_source(cls, v: str) -> str:
-        valid_sources = {"telegram", "web", "whatsapp", "signal"}
+        valid_sources = {"telegram", "web", "signal"}
         if v not in valid_sources:
             raise ValueError(f"Invalid source '{v}'. Must be one of {valid_sources}")
         return v
 
 
 class Feedback(BaseModel):
-    """User feedback event from Telegram, Web UI, WhatsApp, or Signal."""
+    """User feedback event from Telegram, Web UI, or Signal."""
 
     model_config = ConfigDict(from_attributes=True, validate_assignment=True)
 

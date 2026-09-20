@@ -328,13 +328,13 @@ Tailscale ermöglicht den sicheren Zugriff auf das Dashboard von unterwegs, ohne
 
 ### Schritt 8: NewsScout starten
 
-Baue und starte NewsScout inklusive aller Sidecars (SearXNG, WhatsApp, Signal):
+Baue und starte NewsScout inklusive aller Sidecars (SearXNG, Signal):
 
 ```bash
 docker compose --profile all up -d --build
 ```
 
-> **Hinweis**: Der Schalter `--build` stellt sicher, dass das Python-Image beim ersten Start (sowie nach jedem Code-Update) frisch aus dem lokalen `Dockerfile` gebaut wird. Ohne `--profile all` startet nur der Kern (`newsscout`) ohne die optionalen Sidecars. Verwende `docker compose --profile all up -d --build`, um alle Dienste (SearXNG, WhatsApp-Bridge, Signal-Bridge) zu bauen und zu aktivieren.
+> **Hinweis**: Der Schalter `--build` stellt sicher, dass das Python-Image beim ersten Start (sowie nach jedem Code-Update) frisch aus dem lokalen `Dockerfile` gebaut wird. Ohne `--profile all` startet nur der Kern (`newsscout`) ohne die optionalen Sidecars. Verwende `docker compose --profile all up -d --build`, um alle Dienste (SearXNG, Signal-Bridge) zu bauen und zu aktivieren.
 
 Überprüfe den Status der Container:
 

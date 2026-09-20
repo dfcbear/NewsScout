@@ -1,8 +1,8 @@
-﻿"""tests.test_dashboard_v2
+"""tests.test_dashboard_v2
 ~~~~~~~~~~~~~~~~~~~~~~~
 Integration and unit tests for Milestone 4 Dashboard extensions:
 - GET /api/system/status (LLM, search, gateways status)
-- GET /api/gateways/pairing/{channel} (WhatsApp and Signal pairing endpoints)
+- GET /api/gateways/pairing/{channel} (Signal pairing endpoint)
 - Web dashboard HTML template verification for System & Gateways tab
 """
 
@@ -42,9 +42,6 @@ def v2_settings(tmp_path: Path) -> Settings:
         searxng_base_url="http://localhost:8080",
         duckduckgo_enabled=True,
         tavily_api_key=SecretStr("tvly-sample-key"),
-        whatsapp_enabled=True,
-        whatsapp_bridge_url="http://localhost:3000",
-        whatsapp_recipient_id="491701234567@c.us",
         signal_enabled=True,
         signal_bridge_url="http://localhost:8085",
         signal_sender_number="+49170111222",
@@ -91,8 +88,6 @@ async def test_system_status_endpoint(v2_client: AsyncClient):
 
     # Check Gateways
     gw = data["gateways"]
-    assert gw["whatsapp"]["enabled"] is True
-    assert gw["whatsapp"]["recipients_count"] == 1
     assert gw["signal"]["enabled"] is True
     assert gw["signal"]["recipients_count"] == 1
 
@@ -103,25 +98,6 @@ async def test_gateway_pairing_unsupported_channel(v2_client: AsyncClient):
     resp = await v2_client.get("/api/gateways/pairing/discord")
     assert resp.status_code == 400
     assert "Unsupported" in resp.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_gateway_pairing_whatsapp_status(v2_client: AsyncClient):
-    """GET /api/gateways/pairing/whatsapp returns status object."""
-    mock_qr = PairingQRResult(
-        channel="whatsapp",
-        status="pairing_required",
-        qr_data="2@sample-whatsapp-qr-payload",
-    )
-
-    with patch("newsscout.delivery.whatsapp_gateway.WhatsAppGateway.get_pairing_status", new_callable=AsyncMock) as mock_status:
-        mock_status.return_value = mock_qr
-        resp = await v2_client.get("/api/gateways/pairing/whatsapp")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["channel"] == "whatsapp"
-        assert data["status"] == "pairing_required"
-        assert data["qr_data"] == "2@sample-whatsapp-qr-payload"
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,9 @@
-﻿"""tests.test_config_v2
+"""tests.test_config_v2
 ~~~~~~~~~~~~~~~~~~~~
 Unit tests for TASK-08 configuration extensions in Pydantic Settings v2:
 - Universal LLM provider configuration & credentials check
 - Multi-Search engine settings (SearXNG, DuckDuckGo, Tavily, Exa)
-- Multi-Messenger gateway settings (WhatsApp, Signal, DeliveryDispatcher)
+- Multi-Messenger gateway settings (Signal, DeliveryDispatcher)
 - Environment variable aliases (NEWSSCOUT_*)
 """
 
@@ -95,27 +95,14 @@ class TestSearchConfigV2:
 
 
 class TestMessengerConfigV2:
-    """Tests for WhatsApp and Signal gateway configuration."""
+    """Tests for Signal gateway configuration."""
 
     def test_default_messenger_settings(self):
         settings = Settings()
         assert settings.delivery_channels == ["telegram"]
         assert settings.delivery_timeout_seconds == 15.0
-        assert settings.whatsapp_enabled is False
         assert settings.signal_enabled is False
-        assert settings.has_whatsapp_credentials is False
         assert settings.has_signal_credentials is False
-
-    def test_whatsapp_effective_recipients_and_credentials(self):
-        settings = Settings(
-            whatsapp_enabled=True,
-            whatsapp_bridge_url="http://whatsapp-bridge:3000",
-            whatsapp_recipient_id="491701112233@c.us",
-            whatsapp_recipients=["491704445566@c.us"],
-        )
-        assert len(settings.effective_whatsapp_recipients) == 2
-        assert settings.effective_whatsapp_recipients[0] == "491701112233@c.us"
-        assert settings.has_whatsapp_credentials is True
 
     def test_signal_effective_recipients_and_credentials(self):
         settings = Settings(
@@ -146,8 +133,6 @@ class TestEnvAliasesV2:
             "NEWSSCOUT_LLM_PROVIDER": "openai_compatible",
             "NEWSSCOUT_LLM_BASE_URL": "http://gpu-box:8000/v1",
             "NEWSSCOUT_LLM_MODEL": "mistral-7b-instruct",
-            "NEWSSCOUT_WHATSAPP_ENABLED": "true",
-            "NEWSSCOUT_WHATSAPP_BRIDGE_URL": "http://waha:3000",
             "NEWSSCOUT_SIGNAL_ENABLED": "true",
             "NEWSSCOUT_SIGNAL_SENDER_NUMBER": "+49111222333",
             "NEWSSCOUT_SEARXNG_BASE_URL": "http://mysearx:8080",
@@ -157,8 +142,6 @@ class TestEnvAliasesV2:
             assert s.llm_provider == "openai_compatible"
             assert s.llm_base_url == "http://gpu-box:8000/v1"
             assert s.llm_model == "mistral-7b-instruct"
-            assert s.whatsapp_enabled is True
-            assert s.whatsapp_bridge_url == "http://waha:3000"
             assert s.signal_enabled is True
             assert s.signal_sender_number == "+49111222333"
             assert s.searxng_base_url == "http://mysearx:8080"

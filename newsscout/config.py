@@ -165,31 +165,6 @@ class Settings(BaseSettings):
         ge=1.0,
         validation_alias=AliasChoices("NEWSSCOUT_DELIVERY_TIMEOUT_SECONDS", "DELIVERY_TIMEOUT_SECONDS", "DELIVERY_TIMEOUT"),
     )
-    # WhatsApp (WAHA / Baileys bridge)
-    whatsapp_enabled: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("NEWSSCOUT_WHATSAPP_ENABLED", "WHATSAPP_ENABLED"),
-    )
-    whatsapp_bridge_url: str = Field(
-        default="http://localhost:3000",
-        validation_alias=AliasChoices("NEWSSCOUT_WHATSAPP_BRIDGE_URL", "WHATSAPP_BRIDGE_URL"),
-    )
-    whatsapp_bridge_token: SecretStr = Field(
-        default=SecretStr(""),
-        validation_alias=AliasChoices("NEWSSCOUT_WHATSAPP_BRIDGE_TOKEN", "WHATSAPP_BRIDGE_TOKEN"),
-    )
-    whatsapp_session: str = Field(
-        default="default",
-        validation_alias=AliasChoices("NEWSSCOUT_WHATSAPP_SESSION", "WHATSAPP_SESSION"),
-    )
-    whatsapp_recipient_id: str = Field(
-        default="",
-        validation_alias=AliasChoices("NEWSSCOUT_WHATSAPP_RECIPIENT_ID", "WHATSAPP_RECIPIENT_ID", "WHATSAPP_RECIPIENT"),
-    )
-    whatsapp_recipients: list[str] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("NEWSSCOUT_WHATSAPP_RECIPIENTS", "WHATSAPP_RECIPIENTS"),
-    )
     # Signal (signal-cli-rest-api sidecar)
     signal_enabled: bool = Field(
         default=False,
@@ -436,23 +411,6 @@ class Settings(BaseSettings):
         return bool(
             self.telegram_bot_token.get_secret_value().strip()
             and self.telegram_chat_id.strip()
-        )
-
-    @property
-    def effective_whatsapp_recipients(self) -> list[str]:
-        """Returns consolidated list of WhatsApp recipient JIDs/numbers."""
-        recipients = list(self.whatsapp_recipients)
-        if self.whatsapp_recipient_id.strip() and self.whatsapp_recipient_id.strip() not in recipients:
-            recipients.insert(0, self.whatsapp_recipient_id.strip())
-        return recipients
-
-    @property
-    def has_whatsapp_credentials(self) -> bool:
-        """Checks whether WhatsApp bridge URL and recipient are configured and enabled."""
-        return bool(
-            self.whatsapp_enabled
-            and self.whatsapp_bridge_url.strip()
-            and self.effective_whatsapp_recipients
         )
 
     @property

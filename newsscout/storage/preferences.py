@@ -1,4 +1,4 @@
-﻿"""newsscout.storage.preferences
+"""newsscout.storage.preferences
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Persistent user preference store, feedback synchronization service,
 and dynamic few-shot exemplar generator for Stage 2 LLM calibration.
@@ -130,7 +130,7 @@ class PreferencesService:
         """Persists a rating to SQLite with atomic UPSERT semantics and triggers
         an atomic sync of data/preferences.json.
 
-        Supports string phone numbers (WhatsApp), UUIDs (Signal), integer Telegram IDs,
+        Supports string phone numbers/UUIDs (Signal), integer Telegram IDs,
         and web dashboard identifiers.
         """
         if isinstance(rating, str):

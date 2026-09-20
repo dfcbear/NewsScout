@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
@@ -822,17 +822,6 @@
                         <div style="font-weight: 600; color: #229ED9; margin-bottom: 0.5rem;">✈️ Telegram Bot</div>
                         <div style="margin-bottom: 0.5rem;">Status: ${tg.enabled ? '<span style="color: var(--success);">● Aktiv</span>' : '<span style="color: var(--text-muted);">○ Inaktiv / Token fehlt</span>'}</div>
                         <div style="font-size: 0.8rem; color: var(--text-muted);">Chat-ID: ${tg.chat_id ? 'Konfiguriert' : 'Nicht gesetzt'}</div>
-                    </div>
-                `;
-
-                // WhatsApp
-                const wa = gws.whatsapp || {};
-                gwsHtml += `
-                    <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
-                        <div style="font-weight: 600; color: #25D366; margin-bottom: 0.5rem;">💬 WhatsApp (WAHA)</div>
-                        <div style="margin-bottom: 0.5rem;">Status: ${wa.enabled ? '<span style="color: var(--success);">● Aktiv</span>' : '<span style="color: var(--text-muted);">○ Inaktiv / Bridge nötig</span>'}</div>
-                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Empfänger: ${wa.recipients_count || 0} konfiguriert</div>
-                        <button class="nav-tab" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;" onclick="fetchPairingQR('whatsapp')">🔗 QR-Kopplung prüfen</button>
                     </div>
                 `;
 

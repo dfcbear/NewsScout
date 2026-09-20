@@ -1,7 +1,7 @@
-﻿"""newsscout.delivery.base
+"""newsscout.delivery.base
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Unified abstract protocol, data contracts, and exception hierarchy
-for multi-messenger delivery gateways (Telegram, Signal, WhatsApp).
+for multi-messenger delivery gateways (Telegram, Signal).
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ class BaseMessengerGateway(abc.ABC):
     @property
     @abc.abstractmethod
     def channel_name(self) -> str:
-        """Returns the canonical channel identifier ('telegram', 'whatsapp', 'signal')."""
+        """Returns the canonical channel identifier ('telegram', 'signal')."""
         ...
 
     @abc.abstractmethod

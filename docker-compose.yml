@@ -1,4 +1,4 @@
-﻿# docker-compose.yml for NewsScout — Raspberry Pi 5 deployment (ARM64)
+# docker-compose.yml for NewsScout — Raspberry Pi 5 deployment (ARM64)
 services:
   newsscout:
     build:
@@ -26,10 +26,6 @@ services:
       # Telegram Bot
       - NEWSSCOUT_TELEGRAM_BOT_TOKEN=${NEWSSCOUT_TELEGRAM_BOT_TOKEN:-}
       - NEWSSCOUT_TELEGRAM_CHAT_ID=${NEWSSCOUT_TELEGRAM_CHAT_ID:-}
-      # WhatsApp Bridge (WAHA)
-      - NEWSSCOUT_WHATSAPP_ENABLED=${NEWSSCOUT_WHATSAPP_ENABLED:-false}
-      - NEWSSCOUT_WHATSAPP_BRIDGE_URL=${NEWSSCOUT_WHATSAPP_BRIDGE_URL:-http://whatsapp-bridge:3000}
-      - NEWSSCOUT_WHATSAPP_RECIPIENT_ID=${NEWSSCOUT_WHATSAPP_RECIPIENT_ID:-}
       # Signal Bridge (signal-cli-rest-api)
       - NEWSSCOUT_SIGNAL_ENABLED=${NEWSSCOUT_SIGNAL_ENABLED:-false}
       - NEWSSCOUT_SIGNAL_BRIDGE_URL=${NEWSSCOUT_SIGNAL_BRIDGE_URL:-http://signal-bridge:8080}
@@ -78,25 +74,6 @@ services:
       interval: 60s
       timeout: 10s
       retries: 3
-
-  # WhatsApp Sidecar: WAHA (WhatsApp HTTP API / Baileys) (Optional via profile 'messengers' or 'all')
-  whatsapp-bridge:
-    image: devlikeapro/waha:latest
-    container_name: newsscout-whatsapp
-    restart: unless-stopped
-    profiles:
-      - messengers
-      - all
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./data/waha:/app/.sessions
-    environment:
-      - WHATSAPP_DEFAULT_ENGINE=WEBJS
-    deploy:
-      resources:
-        limits:
-          memory: 384M
 
   # Signal Sidecar: signal-cli-rest-api (Optional via profile 'messengers' or 'all')
   signal-bridge:

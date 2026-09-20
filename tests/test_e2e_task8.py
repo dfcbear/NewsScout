@@ -1,12 +1,12 @@
-﻿"""tests.test_e2e_task8
+"""tests.test_e2e_task8
 ~~~~~~~~~~~~~~~~~~~~~
 Complete End-to-End integration test for TASK-08:
 Verifies the full pipeline flow across all 3 major subsystems:
 1. Multi-Search Ingestion: Aggregates results from SearXNG & DuckDuckGo (zero-key) + Tavily & Exa into RawItems
 2. Stage 1 Filter: Processes raw items, filtering SaaS wrappers and passing high-signal candidates
 3. Stage 2 Universal LLM Evaluator: Evaluates candidates via OpenAI-compatible abstraction, generating Decision Cards
-4. Multi-Messenger Delivery Dispatcher: Broadcasts cards concurrently across Telegram, WhatsApp, and Signal
-5. Inbound Feedback & Reaction Router: Processes incoming emojis (🎯, 🚀) and keywords (hit, genial) from WhatsApp and Signal, recording multi-channel feedback in PreferencesService & SQLite WAL
+4. Multi-Messenger Delivery Dispatcher: Broadcasts cards concurrently across Telegram and Signal
+5. Inbound Feedback & Reaction Router: Processes incoming emojis (🎯, 🚀) and keywords (hit, genial) from Signal, recording multi-channel feedback in PreferencesService & SQLite WAL
 6. Dashboard System Status: Verifies all subsystems report healthy operational status
 """
 
@@ -28,7 +28,6 @@ from newsscout.delivery.dispatcher import DeliveryDispatcher
 from newsscout.delivery.inbound import InboundRouter
 from newsscout.delivery.signal_gateway import SignalGateway
 from newsscout.delivery.telegram import TelegramGateway
-from newsscout.delivery.whatsapp_gateway import WhatsAppGateway
 from newsscout.filtering.stage1 import Stage1Filter
 from newsscout.filtering.stage2 import DecisionCardPayload, Stage2EvaluationResponse, Stage2Evaluator
 from newsscout.llm.base import BaseLLMClient
@@ -125,9 +124,6 @@ def e2e_settings(tmp_path: Path) -> Settings:
         searxng_enabled=True,
         duckduckgo_enabled=True,
         tavily_api_key=SecretStr("mock-tavily-key"),
-        whatsapp_enabled=True,
-        whatsapp_bridge_url="http://mock-waha:3000",
-        whatsapp_recipient_id="49170111222@c.us",
         signal_enabled=True,
         signal_bridge_url="http://mock-signal:8085",
         signal_sender_number="+491701234567",
@@ -275,18 +271,13 @@ async def test_full_task8_e2e_pipeline(e2e_db: Database, e2e_settings: Settings)
     mock_tg.is_enabled.return_value = True
     mock_tg.send_card = AsyncMock(return_value=DeliveryReceipt(channel="telegram", success=True, message_id="1001"))
 
-    mock_wa = MagicMock(spec=WhatsAppGateway)
-    mock_wa.channel_name = "whatsapp"
-    mock_wa.is_enabled.return_value = True
-    mock_wa.send_card = AsyncMock(return_value=DeliveryReceipt(channel="whatsapp", success=True, message_id="wa_msg_2002"))
-
     mock_sig = MagicMock(spec=SignalGateway)
     mock_sig.channel_name = "signal"
     mock_sig.is_enabled.return_value = True
     mock_sig.send_card = AsyncMock(return_value=DeliveryReceipt(channel="signal", success=True, message_id="1726820000000"))
 
     dispatcher = DeliveryDispatcher(
-        gateways=[mock_tg, mock_wa, mock_sig],
+        gateways=[mock_tg, mock_sig],
         settings=e2e_settings,
         preferences_service=preferences,
     )
@@ -295,11 +286,9 @@ async def test_full_task8_e2e_pipeline(e2e_db: Database, e2e_settings: Settings)
     receipts = await dispatcher.broadcast_card(top_bt)
 
     assert "telegram" in receipts and receipts["telegram"].success is True
-    assert "whatsapp" in receipts and receipts["whatsapp"].success is True
     assert "signal" in receipts and receipts["signal"].success is True
 
     # Verify delivery tracking in dispatcher
-    assert dispatcher.get_breakthrough_id_for_message("whatsapp", "wa_msg_2002") == top_bt.id
     assert dispatcher.get_breakthrough_id_for_message("signal", "1726820000000") == top_bt.id
 
     # ------------------------------------------------------------------------
@@ -312,22 +301,24 @@ async def test_full_task8_e2e_pipeline(e2e_db: Database, e2e_settings: Settings)
         settings=e2e_settings,
     )
 
-    # 5a. WhatsApp User reacts with 🎯 (Volltreffer)
-    wa_reaction_payload = {
-        "event": "message.reaction",
-        "payload": {
-            "from": "49170111222@c.us",
-            "reaction": {
-                "text": "🎯",
-                "messageId": "wa_msg_2002",
+    # 5a. Signal User reacts with 🎯 (Volltreffer) via reaction payload
+    sig_reaction_payload = {
+        "envelope": {
+            "source": "+491701234567",
+            "dataMessage": {
+                "reaction": {
+                    "emoji": "🎯",
+                    "targetAuthor": "+491709876543",
+                    "targetSentTimestamp": 1726820000000,
+                }
             }
         }
     }
-    wa_result = await inbound_router.handle_whatsapp_webhook(wa_reaction_payload)
-    assert wa_result.action == "feedback"
-    assert wa_result.success is True
-    assert wa_result.rating == FeedbackRating.HIT
-    assert wa_result.breakthrough_id == top_bt.id
+    sig_reaction_result = await inbound_router.handle_signal_webhook(sig_reaction_payload)
+    assert sig_reaction_result.action == "feedback"
+    assert sig_reaction_result.success is True
+    assert sig_reaction_result.rating == FeedbackRating.HIT
+    assert sig_reaction_result.breakthrough_id == top_bt.id
 
     # 5b. Signal User replies to quoted message with text 'genial' (Inspire)
     sig_reply_payload = {
@@ -354,9 +345,9 @@ async def test_full_task8_e2e_pipeline(e2e_db: Database, e2e_settings: Settings)
         (top_bt.id,),
     )
     assert len(fb_rows) == 2
-    assert fb_rows[0]["source"] == "whatsapp"
+    assert fb_rows[0]["source"] == "signal"
     assert fb_rows[0]["rating"] == "hit"
-    assert fb_rows[0]["user_identifier"] == "49170111222@c.us"
+    assert fb_rows[0]["user_identifier"] == "+491701234567"
     assert fb_rows[1]["source"] == "signal"
     assert fb_rows[1]["rating"] == "inspire"
     assert fb_rows[1]["user_identifier"] == "+491709876543"
@@ -375,7 +366,6 @@ async def test_full_task8_e2e_pipeline(e2e_db: Database, e2e_settings: Settings)
         assert status_data["llm"]["provider"] == "openai_compatible"
         assert status_data["llm"]["configured"] is True
         assert status_data["search"]["searxng"]["enabled"] is True
-        assert status_data["gateways"]["whatsapp"]["enabled"] is True
         assert status_data["gateways"]["signal"]["enabled"] is True
 
         stats_resp = await client.get("/api/stats")

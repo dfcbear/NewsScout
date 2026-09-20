@@ -1,4 +1,4 @@
-﻿# SPEC: Autonomous AI Breakthrough Scout & Audio-Digest (Codename: "NewsScout")
+# SPEC: Autonomous AI Breakthrough Scout & Audio-Digest (Codename: "NewsScout")
 
 > **Status**: DRAFT / SPEC-DRIVEN BASELINE  
 > **Target Platform**: Raspberry Pi 5 (8GB, USB-SSD), 24/7 Local Service  
@@ -144,9 +144,9 @@
 | **TASK-05** | Web Dashboard & Tailscale | Build fast, responsive mobile-first UI for browsing history and feedback stats. | `@main_agent` | `DONE` |
 | **TASK-06** | E2E Testing & Spec Review | Validate end-to-end flow from raw ingestion to audio delivery on test data. | `@main_agent` | `DONE` |
 | **TASK-07** | Dynamic Topic & Source Management | Dashboard API/UI for managing GitHub repos, HN keywords, and topic radar. Telegram `/track` and `/interest` commands. DB-driven keyword and profile configuration replacing hardcoded constants. Quality hardening from model-switch audit. | `@main_agent` | `DONE` |
-| **TASK-08** | Multi-Messenger Gateways, Multi-Search & Universal LLM | QR-code WhatsApp & Signal gateways, parallel search pipeline (SearXNG, DuckDuckGo, Tavily, Exa), and OpenAI-compatible/self-hosted LLM abstraction. | `@main_agent` | `DONE` |
-| **TASK-09** | LLM Dialectic Audio Scripting | Ersetze statische String-Templates durch dynamische LLM-Drehbuchgenerierung mit Conrad/Katja-Personas. DomÃ¤nenspezifische, organische Kontroversen im Deep Dive. Pydantic Dialogue Schema & 15-30 Min. Budgetierung. | `@main_agent` | `DONE` |
-| **TASK-10** | Production Hardening: Dedup, SQLite Concurrency, Circuit Breaker, Async Delivery | R1: Pre-Stage-1 Deduplizierung (URL-Bereinigung + Jaccard-Text-Dedup). R2: SQLite Concurrency & Lock Avoidance (busy_timeout 15s, retry-with-backoff). R3: Circuit Breaker & Graceful Degradation fÃ¼r Web-Search-Provider. R4: Async Decoupling im Gateway Dispatcher (per-gateway timeout fÃ¼r Signal/WhatsApp). R5: Tests fÃ¼r alle Subsysteme. | `@main_agent` | `DONE` |
+| **TASK-08** | Multi-Messenger Gateways, Multi-Search & Universal LLM | QR-code Signal gateway, parallel search pipeline (SearXNG, DuckDuckGo, Tavily, Exa), and OpenAI-compatible/self-hosted LLM abstraction. | `@main_agent` | `DONE` |
+| **TASK-09** | LLM Dialectic Audio Scripting | Ersetze statische String-Templates durch dynamische LLM-Drehbuchgenerierung mit Conrad/Katja-Personas. Domänenspezifische, organische Kontroversen im Deep Dive. Pydantic Dialogue Schema & 15-30 Min. Budgetierung. | `@main_agent` | `DONE` |
+| **TASK-10** | Production Hardening: Dedup, SQLite Concurrency, Circuit Breaker, Async Delivery | R1: Pre-Stage-1 Deduplizierung (URL-Bereinigung + Jaccard-Text-Dedup). R2: SQLite Concurrency & Lock Avoidance (busy_timeout 15s, retry-with-backoff). R3: Circuit Breaker & Graceful Degradation für Web-Search-Provider. R4: Async Decoupling im Gateway Dispatcher (per-gateway timeout für Signal). R5: Tests für alle Subsysteme. | `@main_agent` | `DONE` |
 
 ---
 
@@ -246,11 +246,11 @@
   11. `newsscout/scheduler.py`: Integrated scheduled recurring ingestion -> Stage 1 -> Stage 2 pipeline runs (`_run_pipeline_job`) (resolves C3); integrated concurrent uvicorn web dashboard serving in `main()` so port 8000 is open and healthy (resolves C2); properly closed DB connections.
   12. `newsscout/dashboard/__init__.py` & `filtering/__init__.py`: Added package exports including `DecisionCardGenerator` and `DecisionCardValidator` (resolves m6).
   13. Test Verification: Created `tests/test_topics.py` (8 tests) and `tests/test_scheduler.py` (5 tests). Executed full regression suite: 417/417 tests passing cleanly in 45.79s (100% pass rate with zero regressions). Task status updated to DONE.
-* `2026-09-19T07:34:00Z` (`@main_agent`): Defined and scoped **TASK-08** (Multi-Messenger Gateways for WhatsApp/Signal with QR pairing, Parallel Multi-Search Aggregation with SearXNG/DuckDuckGo/Tavily/Exa, and Universal OpenAI-compatible & self-hosted LLM Provider Abstraction). Prepared Teamwork prompt artifact and awaiting user launch approval.
+* `2026-09-19T07:34:00Z` (`@main_agent`): Defined and scoped **TASK-08** (Multi-Messenger Gateways for Signal with QR pairing, Parallel Multi-Search Aggregation with SearXNG/DuckDuckGo/Tavily/Exa, and Universal OpenAI-compatible & self-hosted LLM Provider Abstraction). Prepared Teamwork prompt artifact and awaiting user launch approval.
 * `2026-09-19T08:00:00Z` (`@teamwork_preview_worker_t8m1_1`): Successfully completed TASK-08 Milestone 1 (Storage Evolution & Universal LLM Abstraction):
   1. Database Migration 002 (`002_multi_messenger_feedback` in `newsscout/storage/migrations.py`):
      - Evolved `feedback` table schema with `user_identifier TEXT NOT NULL DEFAULT 'default'` replacing single-messenger integer `telegram_user_id`.
-     - Expanded channel constraint to `CHECK(source IN ('telegram', 'web', 'whatsapp', 'signal'))`.
+     - Expanded channel constraint to `CHECK(source IN ('telegram', 'web', 'signal'))`.
      - Added multi-messenger UPSERT index `UNIQUE(breakthrough_id, user_identifier)` and performance indexes `idx_feedback_breakthrough` & `idx_feedback_user`.
      - Thread-safe migration runner with `_MIGRATION_LOCK = threading.Lock()` preventing race conditions during concurrent multi-threaded startup.
      - Implemented bidirectional up/down migration logic and registered Migration 2 in `MIGRATIONS`.
@@ -319,26 +319,26 @@
 * `2026-09-19T09:48:00Z` (`@teamwork_preview_worker_m3_1`): Successfully completed TASK-08 Milestone 3 (Multi-Messenger Gateways & Unified Delivery Dispatcher). Implemented all gateway adapters, dispatcher broadcasting, inbound interaction routing, and 100% offline mock test suites:
   1. `newsscout/delivery/base.py`: Canonical `BaseMessengerGateway` protocol (`channel_name`, `is_enabled`, `is_connected`, `send_card`, `send_audio`, `send_text`, `get_pairing_status`, `close`); standard `DeliveryReceipt` dataclass with `.to_dict()`; `PairingQRResult` dataclass with `.to_dict()`; pairing status constants (`STATUS_CONNECTED`, `STATUS_PAIRING_REQUIRED`, `STATUS_DISABLED`, `STATUS_ERROR`); complete isolated delivery exception hierarchy (`DeliveryError`, `DeliveryConnectionError`, `DeliveryTimeoutError`, `DeliveryAuthError`, `DeliveryRateLimitError` with `retry_after`, `DeliveryChannelDisabledError`, `DeliveryPayloadError`).
   2. `newsscout/delivery/telegram.py`: `TelegramGateway` adapter wrapping `TelegramBot` under `BaseMessengerGateway`; 100% backward-compatible forwarding for all legacy methods (`send_decision_card`, `send_audio_track`, `send_digest_menu`, `send_message`, `handle_callback_query`, `handle_message_text`, `poll_updates`, `process_update`, `is_authorized`); preserves inline keyboard callback contracts (`feedback:{id}:{rating}`); self-healing client context management and per-call error shielding.
-  3. `newsscout/delivery/whatsapp_gateway.py`: `WhatsAppGateway` targeting containerized WAHA / Baileys bridge; WhatsApp-specific markdown formatting (`*bold*`, `_italic_`, `~strike~`, bare URLs, code blocks) with embedded `[#<breakthrough_id>]` tag and interactive quick-reply legend (`Antworte mit: ðŸŽ¯ Hit | ðŸ’¤ Hype | âœ… Bekannt | ðŸš€ Inspiration`); audio file dispatch via base64 encoded MP3; QR pairing inspection via `/api/sessions/{session}` and `/api/{session}/auth/qr?format=image` with screenshot fallback; exponential backoff retries and strict error shielding.
+  3. `newsscout/delivery/whatsapp_gateway.py`: `WhatsAppGateway targeting containerized WAHA [REMOVED � see 2026-09-20 WhatsApp removal log] / Baileys bridge; WhatsApp-specific markdown formatting (`*bold*`, `_italic_`, `~strike~`, bare URLs, code blocks) with embedded `[#<breakthrough_id>]` tag and interactive quick-reply legend (`Antworte mit: ðŸŽ¯ Hit | ðŸ’¤ Hype | âœ… Bekannt | ðŸš€ Inspiration`); audio file dispatch via base64 encoded MP3; QR pairing inspection via `/api/sessions/{session}` and `/api/{session}/auth/qr?format=image` with screenshot fallback; exponential backoff retries and strict error shielding.
   4. `newsscout/delivery/signal_gateway.py`: `SignalGateway` targeting `signal-cli-rest-api` sidecar; CommonMark markdown formatting (`**bold**`, `*italic*`, markdown links, code blocks) with embedded `[#<breakthrough_id>]` tag and interactive quick-reply legend; base64 audio attachment dispatch (`data:audio/mpeg;base64,...`); QR device linking status inspection (`/v1/about`, `/v1/accounts`, `/v1/qrcodelink?device_name=NewsScout`); exponential backoff retries and strict error shielding.
   5. `newsscout/delivery/dispatcher.py`: `DeliveryDispatcher` holding registered gateways; concurrent multi-channel broadcasting via `asyncio.gather` for cards and audio; per-channel fault isolation ensuring hanging or failing sidecars never abort sibling deliveries; targeted single-channel dispatch; concurrent pairing status querying; in-memory delivery cache (`_recent_deliveries`: `(channel, message_id) -> breakthrough_id`) and latest broadcast tracking; `create_default_dispatcher` factory.
   6. `newsscout/delivery/inbound.py`: `InboundRouter` normalizing WAHA and signal-cli webhooks to `InboundMessage`; parses emoji reactions (ðŸŽ¯, ðŸ’¤, ðŸ˜´, âœ…, âœ”, ðŸš€, ðŸ”¥) and German/English rating keywords (hit, volltreffer, top, hype, banal, known, bekannt, inspire, inspiration, etc.); 6-tier breakthrough ID resolution waterfall (explicit ID in text -> `[#ID]` in quote -> delivery cache lookup -> database title match -> latest broadcast ID -> latest non-discard database breakthrough); persists feedback to `PreferencesService.record_feedback()`; routes slash commands (`/track`, `/interest`, `/radar`, `/help`).
   7. `newsscout/delivery/__init__.py`: Clean public re-exports of all gateways, receipts, status constants, exception classes, dispatcher, and inbound router.
   8. `newsscout/config.py`: Extended `Settings` with messenger configuration fields (`whatsapp_enabled`, `whatsapp_bridge_url`, `whatsapp_bridge_token`, `whatsapp_session`, `whatsapp_recipient_id`, `whatsapp_recipients`, `signal_enabled`, `signal_bridge_url`, `signal_sender_number`, `signal_recipient_id`, `signal_recipients`, `delivery_timeout_seconds`, `delivery_channels`); credential check properties (`has_whatsapp_credentials`, `has_signal_credentials`, `effective_whatsapp_recipients`, `effective_signal_recipients`).
-  9. `tests/test_gateways.py`: 36 unit and integration tests covering BaseMessengerGateway, DeliveryReceipt, PairingQRResult, DeliveryError hierarchy, TelegramGateway, WhatsAppGateway, and SignalGateway with 100% offline mocks.
+  9. `tests/test_gateways.py`: 36 unit and integration tests covering BaseMessengerGateway, DeliveryReceipt, PairingQRResult, DeliveryError hierarchy, TelegramGateway, SignalGateway with 100% offline mocks.
   10. `tests/test_dispatcher.py`: 31 unit and integration tests covering DeliveryDispatcher gateway registry, concurrent broadcasting, per-channel fault isolation, targeted send, pairing querying, InboundRouter reaction and keyword parsing, 6-tier breakthrough resolution waterfall, feedback persistence to PreferencesService, slash command execution, and webhook payload parsing.
   11. Verification: 100% test pass rate across the full regression suite (674/674 passed, 10 skipped in 94.97s, 0 failures, 0 regressions across all 607 baseline tests + 67 new delivery tests). Task status: Milestone 3 DONE.
 * `2026-09-20T12:04:00Z` (`@main_agent`): Successfully completed TASK-08 Milestone 4 (Configuration, Docker Compose ARM64 & Dashboard Status Integration):
   1. `newsscout/config.py`: Verified and formalized full Pydantic Settings v2 configuration covering all multi-search settings, messenger endpoints/tokens, universal LLM endpoints/models/fallbacks, and Docker `NEWSSCOUT_` aliases.
-  2. `newsscout/scheduler.py`: Decoupled LLM check to `has_llm_credentials` (supporting OpenAI-compatible, vLLM, Ollama, GLM 5.2 alongside Gemini); integrated `DeliveryDispatcher` into `DigestScheduler` for concurrent decision card and digest audio broadcasting across Telegram, WhatsApp, and Signal.
+  2. `newsscout/scheduler.py`: Decoupled LLM check to `has_llm_credentials` (supporting OpenAI-compatible, vLLM, Ollama, GLM 5.2 alongside Gemini); integrated `DeliveryDispatcher` into `DigestScheduler` for concurrent decision card and digest audio broadcasting across Telegram and Signal.
   3. `docker-compose.yml`: Extended for Raspberry Pi 5 (ARM64) deployment with sidecar profiles:
      - `searxng`: `searxng/searxng:latest` under profile `search`/`all` with 256MB RAM limit.
-     - `whatsapp-bridge`: `devlikeapro/waha:latest` under profile `messengers`/`all` with 384MB RAM limit and `./data/waha` session mount.
+     - `whatsapp-bridge [REMOVED � see 2026-09-20 WhatsApp removal log]` session mount.
      - `signal-bridge`: `bbernhard/signal-cli-rest-api:latest` in `json-rpc` mode under profile `messengers`/`all` with 384MB RAM limit and `./data/signal-cli` mount.
      - `newsscout`: Updated environment variables for all new providers, messengers, and sidecar endpoints.
   4. `newsscout/dashboard/app.py`: Implemented REST endpoints:
      - `GET /api/system/status`: Returns JSON reporting active LLM provider/model/endpoint/fallback, all 4 search engine states (zero-key vs commercial), and messenger gateway connection states.
-     - `GET /api/gateways/pairing/{channel}`: Queries active gateway pairing status (connected, pairing_required, disabled) and exposes QR code string/image URL for WhatsApp and Signal.
+     - `GET /api/gateways/pairing/{channel}`: Queries active gateway pairing status (connected, pairing_required, disabled) and exposes QR code string/image URL for Signal.
   5. `newsscout/dashboard/templates/index.html`: Added 6th tab **System & Gateways** displaying real-time LLM status cards, Multi-Search pipeline pills, messenger connectivity status, and an interactive QR-code pairing modal for WhatsApp & Signal.
   6. Tests: Created `tests/test_config_v2.py` (13 tests) and `tests/test_dashboard_v2.py` (5 tests). All 18 tests passing cleanly in 0.74s.
 * `2026-09-20T12:08:00Z` (`@main_agent`): Successfully completed TASK-08 Milestone 5 (E2E Integration, Regression & Final Verification):
@@ -346,7 +346,7 @@
      - Multi-Search Ingestion (SearXNG, DuckDuckGo zero-key, Tavily, Exa) with URL normalization and deduplication.
      - Stage 1 Heuristic Filtering (dropping SaaS wrappers, passing runnable Docker/code repositories).
      - Stage 2 Deep Evaluation using Universal LLM client (`MockE2ELLMClient`) yielding valid Pydantic DecisionCards.
-     - Concurrent broadcasting via `DeliveryDispatcher` to Telegram, WhatsApp, and Signal.
+     - Concurrent broadcasting via `DeliveryDispatcher` to Telegram and Signal.
      - Inbound interaction routing via `InboundRouter`: WhatsApp emoji reaction `🎯` and Signal text quote-reply `genial` successfully parsed and persisted to `feedback` table in SQLite WAL.
      - Dashboard verification via `/api/system/status` and `/api/stats`.
 * `2026-09-20T16:00:00Z` (`@main_agent`): Completed Dialectic Audio Debate Enhancement & Test Suite Update:
@@ -384,7 +384,7 @@
      - `tests/test_search.py`: Added `TestCircuitBreaker` class with 5 tests — threshold opening, healthy provider in cooldown, cooldown expiry reset, success reset, timeout-as-failure.
   4. **R4 — Async Decoupling in Gateway Dispatcher** (34/34 dispatcher tests passing):
      - `newsscout/delivery/dispatcher.py`: `broadcast_card()` and `broadcast_audio()` now enforce per-gateway timeout for unstable channels (`signal`, `whatsapp`) via `asyncio.wait_for(timeout=delivery_gateway_timeout_seconds)`. Telegram and other stable channels have no timeout wrapper. `asyncio.TimeoutError` caught and returns `DeliveryReceipt(success=False, error="Gateway timeout after X.Xs")`. Other exceptions still caught per-channel for fault isolation.
-     - `tests/test_dispatcher.py`: Added 3 R4 tests — `test_r4_signal_timeout_does_not_block_telegram`, `test_r4_whatsapp_exception_produces_partial_receipts`, `test_r4_per_gateway_timeout_independent` (verifies total delivery time < 1s when Signal hangs 5s but times out at 0.1s).
+     - `tests/test_dispatcher.py`: Added 3 R4 tests — `test_r4_signal_timeout_does_not_block_telegram`, `test_r4_gateway_exception_produces_partial_receipts`, `test_r4_per_gateway_timeout_independent` (verifies total delivery time < 1s when Signal hangs 5s but times out at 0.1s).
   5. **R5 — Full Test Suite Verification**: Full regression suite run confirms **838 tests passed in 179.92s** (0 failures, 0 regressions).
 
 ---
@@ -465,3 +465,22 @@
 ### Test Results (Post-Hardening)
 - Full suite: ~880 tests, 2 pre-existing failures (CPU benchmark timing on Windows, unrelated to changes).
 - Targeted suites: config + security + dedup + dispatcher + storage + filtering all pass (216 passed in 34.58s).
+
+* `2026-09-20T23:30:00Z` (`@main_agent`): **WhatsApp Support Removed — Signal & Telegram Only**:
+  Triggered by Docker Compose failure on Raspberry Pi 5: `devlikeapro/waha:latest` has no ARM64 manifest, breaking `docker compose --profile all up`. User decided to remove WhatsApp entirely (not just disable it).
+  1. **DELETED** `newsscout/delivery/whatsapp_gateway.py` — entire 430-line WhatsAppGateway module removed.
+  2. **docker-compose.yml**: Removed `whatsapp-bridge` service block and all WhatsApp env vars.
+  3. **.env.example**: Removed WhatsApp Bridge section.
+  4. **newsscout/config.py**: Removed WhatsApp config fields (`whatsapp_enabled`, `whatsapp_bridge_url`, `whatsapp_bridge_token`, `whatsapp_session`, `whatsapp_recipient_id`, `whatsapp_recipients`) and properties (`effective_whatsapp_recipients`, `has_whatsapp_credentials`).
+  5. **newsscout/delivery/__init__.py**: Removed `WhatsAppGateway` import and `__all__` entry.
+  6. **newsscout/delivery/base.py**: Updated docstrings to remove WhatsApp.
+  7. **newsscout/delivery/dispatcher.py**: Removed WhatsApp Gateway registration from `create_default_dispatcher()`, updated docstrings.
+  8. **newsscout/delivery/inbound.py**: Removed `handle_whatsapp_webhook()` method (55 lines), removed WhatsApp branches from all 5 format methods.
+  9. **newsscout/dashboard/app.py**: Removed WhatsApp entry from `gateways_status`, updated valid channels to `("signal", "telegram")`.
+  10. **newsscout/dashboard/templates/index.html**: Removed WhatsApp gateway card JS block.
+  11. **newsscout/storage/models.py**: Removed `WHATSAPP = "whatsapp"` from `FeedbackSource` enum, updated `valid_sources` to `{"telegram", "web", "signal"}`.
+  12. **newsscout/storage/migrations.py**: Updated CHECK constraint to `('telegram', 'web', 'signal')`.
+  13. **newsscout/storage/preferences.py**: Updated docstring.
+  14. **newsscout/audio/prompts.py**: Updated feedback reminder line.
+  15. **HANDBUCH.md**: Updated lines 331 and 337.
+  16. **Tests**: Updated all test files — `test_adversarial_m3.py`, `test_config_v2.py`, `test_dispatcher.py`, `test_gateways.py`, `test_dashboard_v2.py`, `test_storage_v2.py`, `test_milestone1_adversarial.py`, `test_e2e_task8.py` — to remove all WhatsApp references, imports, fixtures, and test cases. Replaced WhatsApp test scenarios with Signal equivalents where multi-channel coverage was needed.

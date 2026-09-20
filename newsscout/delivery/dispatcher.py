@@ -1,7 +1,7 @@
 """newsscout.delivery.dispatcher
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Unified multi-channel delivery dispatcher for NewsScout.
-Manages registered messenger gateways (Telegram, WhatsApp, Signal) and orchestrates
+Manages registered messenger gateways (Telegram, Signal) and orchestrates
 concurrent broadcasting with per-channel fault isolation.
 """
 
@@ -87,7 +87,7 @@ class DeliveryDispatcher:
         Guarantees:
         - Concurrent execution via asyncio.gather.
         - Strict per-channel fault isolation (exceptions are captured in DeliveryReceipt).
-        - Per-gateway timeout enforcement (R4): unstable gateways (Signal, WhatsApp)
+        - Per-gateway timeout enforcement (R4): unstable gateways (Signal)
           are wrapped with asyncio.wait_for to prevent them from blocking the entire round.
         - Tracks (channel, message_id) -> breakthrough_id in delivery cache.
         """
@@ -169,7 +169,7 @@ class DeliveryDispatcher:
     ) -> dict[str, DeliveryReceipt]:
         """Broadcasts an audio file/digest to all enabled gateways concurrently.
 
-        Per-gateway timeout enforcement (R4): unstable gateways (Signal, WhatsApp)
+        Per-gateway timeout enforcement (R4): unstable gateways (Signal)
         are wrapped with asyncio.wait_for to prevent them from blocking the entire round.
         """
         enabled = self.get_enabled_gateways()
@@ -340,7 +340,7 @@ def create_default_dispatcher(
     preferences_service: Optional[PreferencesService] = None,
     client: Optional[httpx.AsyncClient] = None,
 ) -> DeliveryDispatcher:
-    """Factory function creating a DeliveryDispatcher with Telegram, WhatsApp, and Signal gateways."""
+    """Factory function creating a DeliveryDispatcher with Telegram and Signal gateways."""
     settings = settings or get_settings()
     dispatcher = DeliveryDispatcher(settings=settings, preferences_service=preferences_service)
 
@@ -353,14 +353,7 @@ def create_default_dispatcher(
     except ImportError:
         logger.debug("TelegramGateway not available")
 
-    # 2. WhatsApp Gateway
-    try:
-        from newsscout.delivery.whatsapp_gateway import WhatsAppGateway
-        dispatcher.register_gateway(WhatsAppGateway(settings=settings, client=client))
-    except ImportError:
-        logger.debug("WhatsAppGateway not available")
-
-    # 3. Signal Gateway
+    # 2. Signal Gateway
     try:
         from newsscout.delivery.signal_gateway import SignalGateway
         dispatcher.register_gateway(SignalGateway(settings=settings, client=client))

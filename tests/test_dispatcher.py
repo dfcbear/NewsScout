@@ -164,12 +164,12 @@ def mock_card() -> DecisionCard:
 class TestDispatcherGatewayRegistry:
     def test_register_and_retrieve_gateways(self):
         gw1 = MockGateway("telegram")
-        gw2 = MockGateway("whatsapp")
+        gw2 = MockGateway("mock_ch")
         gw3 = MockGateway("signal", enabled=False)
 
         dispatcher = DeliveryDispatcher(gateways=[gw1, gw2, gw3])
         assert dispatcher.get_gateway("telegram") is gw1
-        assert dispatcher.get_gateway("whatsapp") is gw2
+        assert dispatcher.get_gateway("mock_ch") is gw2
         assert dispatcher.get_gateway("signal") is gw3
         assert len(dispatcher.get_all_gateways()) == 3
 
@@ -199,27 +199,27 @@ class TestDispatcherBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_card_concurrent_success(self, mock_card):
         gw_tg = MockGateway("telegram", delay_seconds=0.01)
-        gw_wa = MockGateway("whatsapp", delay_seconds=0.01)
+        gw_wa = MockGateway("mock_ch", delay_seconds=0.01)
         gw_sig = MockGateway("signal", delay_seconds=0.01)
 
         dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_wa, gw_sig])
         receipts = await dispatcher.broadcast_card(mock_card)
 
         assert len(receipts) == 3
-        for ch in ("telegram", "whatsapp", "signal"):
+        for ch in ("telegram", "mock_ch", "signal"):
             assert receipts[ch].success is True
             assert receipts[ch].message_id == f"{ch}_msg_101"
 
         # Check delivery cache
         assert dispatcher.get_breakthrough_id_for_message("telegram", "telegram_msg_101") == 101
-        assert dispatcher.get_breakthrough_id_for_message("whatsapp", "whatsapp_msg_101") == 101
+        assert dispatcher.get_breakthrough_id_for_message("mock_ch", "mock_ch_msg_101") == 101
         assert dispatcher.get_breakthrough_id_for_message("signal", "signal_msg_101") == 101
         assert dispatcher.get_latest_breakthrough_id() == 101
 
     @pytest.mark.asyncio
     async def test_broadcast_card_fault_isolation(self, mock_card):
         gw_tg = MockGateway("telegram")
-        gw_wa = MockGateway("whatsapp", fail_send=True)
+        gw_wa = MockGateway("mock_ch", fail_send=True)
         gw_sig = MockGateway("signal", raise_exception=True)
 
         dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_wa, gw_sig])
@@ -227,8 +227,8 @@ class TestDispatcherBroadcast:
 
         assert len(receipts) == 3
         assert receipts["telegram"].success is True
-        assert receipts["whatsapp"].success is False
-        assert "Simulated send failure" in receipts["whatsapp"].error
+        assert receipts["mock_ch"].success is False
+        assert "Simulated send failure" in receipts["mock_ch"].error
         assert receipts["signal"].success is False
         assert "ConnectionResetError" in receipts["signal"].error
 
@@ -246,7 +246,7 @@ class TestDispatcherBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_audio_concurrent_success(self):
         gw_tg = MockGateway("telegram")
-        gw_wa = MockGateway("whatsapp")
+        gw_wa = MockGateway("mock_ch")
         gw_sig = MockGateway("signal")
 
         dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_wa, gw_sig])
@@ -261,14 +261,14 @@ class TestDispatcherBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_audio_fault_isolation(self):
         gw_tg = MockGateway("telegram")
-        gw_wa = MockGateway("whatsapp", raise_exception=True)
+        gw_wa = MockGateway("mock_ch", raise_exception=True)
 
         dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_wa])
         receipts = await dispatcher.broadcast_audio("/data/audio/digest.mp3")
 
         assert receipts["telegram"].success is True
-        assert receipts["whatsapp"].success is False
-        assert receipts["whatsapp"].error  # Has an error message (timeout or exception)
+        assert receipts["mock_ch"].success is False
+        assert receipts["mock_ch"].error  # Has an error message (timeout or exception)
 
     @pytest.mark.asyncio
     async def test_r4_signal_timeout_does_not_block_telegram(self, factory):
@@ -289,10 +289,10 @@ class TestDispatcherBroadcast:
         assert "timeout" in receipts["signal"].error.lower()
 
     @pytest.mark.asyncio
-    async def test_r4_whatsapp_exception_produces_partial_receipts(self, factory):
-        """R4: WhatsApp exception produces partial receipts without blocking other channels."""
+    async def test_r4_gateway_exception_produces_partial_receipts(self, factory):
+        """R4: Gateway exception produces partial receipts without blocking other channels."""
         gw_tg = MockGateway("telegram")
-        gw_wa = MockGateway("whatsapp", raise_exception=True)
+        gw_wa = MockGateway("mock_ch", raise_exception=True)
 
         dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_wa])
 
@@ -301,8 +301,8 @@ class TestDispatcherBroadcast:
 
         assert len(receipts) == 2
         assert receipts["telegram"].success is True
-        assert receipts["whatsapp"].success is False
-        assert receipts["whatsapp"].error is not None
+        assert receipts["mock_ch"].success is False
+        assert receipts["mock_ch"].error is not None
 
     @pytest.mark.asyncio
     async def test_r4_per_gateway_timeout_independent(self):
@@ -386,22 +386,22 @@ class TestDispatcherTargetedSendAndPairing:
     @pytest.mark.asyncio
     async def test_send_to_channel_unknown_channel(self, mock_card):
         dispatcher = DeliveryDispatcher()
-        receipt = await dispatcher.send_to_channel("whatsapp", card=mock_card)
+        receipt = await dispatcher.send_to_channel("mock_ch", card=mock_card)
         assert receipt.success is False
         assert "not registered" in receipt.error
 
     @pytest.mark.asyncio
     async def test_send_to_channel_disabled_channel(self, mock_card):
-        gw = MockGateway("whatsapp", enabled=False)
+        gw = MockGateway("mock_ch", enabled=False)
         dispatcher = DeliveryDispatcher(gateways=[gw])
-        receipt = await dispatcher.send_to_channel("whatsapp", card=mock_card)
+        receipt = await dispatcher.send_to_channel("mock_ch", card=mock_card)
         assert receipt.success is False
         assert "disabled" in receipt.error
 
     @pytest.mark.asyncio
     async def test_get_all_pairing_statuses_with_error_shielding(self):
         gw1 = MockGateway("telegram")
-        gw2 = MockGateway("whatsapp", fail_status=True)
+        gw2 = MockGateway("mock_ch", fail_status=True)
         gw3 = MockGateway("signal", enabled=False)
 
         dispatcher = DeliveryDispatcher(gateways=[gw1, gw2, gw3])
@@ -409,14 +409,14 @@ class TestDispatcherTargetedSendAndPairing:
 
         assert len(statuses) == 3
         assert statuses["telegram"].status == STATUS_CONNECTED
-        assert statuses["whatsapp"].status == STATUS_ERROR
-        assert "Simulated status error" in statuses["whatsapp"].error
+        assert statuses["mock_ch"].status == STATUS_ERROR
+        assert "Simulated status error" in statuses["mock_ch"].error
         assert statuses["signal"].status == STATUS_DISABLED
 
     @pytest.mark.asyncio
     async def test_dispatcher_lifecycle_close(self):
         gw1 = MockGateway("telegram")
-        gw2 = MockGateway("whatsapp")
+        gw2 = MockGateway("mock_ch")
         dispatcher = DeliveryDispatcher(gateways=[gw1, gw2])
 
         async with dispatcher:
@@ -432,7 +432,6 @@ class TestDefaultDispatcherFactory:
         dispatcher = create_default_dispatcher(settings=settings)
         all_channels = [gw.channel_name for gw in dispatcher.get_all_gateways()]
         assert "telegram" in all_channels
-        assert "whatsapp" in all_channels
         assert "signal" in all_channels
 
 
@@ -491,7 +490,7 @@ class TestBreakthroughIdResolutionWaterfall:
     @pytest.mark.asyncio
     async def test_tier1_explicit_id_in_message_text(self):
         router = InboundRouter()
-        assert await router.resolve_breakthrough_id(channel="whatsapp", message_text="hit 42") == 42
+        assert await router.resolve_breakthrough_id(channel="mock_ch", message_text="hit 42") == 42
         assert await router.resolve_breakthrough_id(channel="signal", message_text="#77") == 77
         assert await router.resolve_breakthrough_id(channel="telegram", message_text="ID: 99") == 99
 
@@ -499,15 +498,15 @@ class TestBreakthroughIdResolutionWaterfall:
     async def test_tier2_explicit_tag_in_quoted_text(self):
         router = InboundRouter()
         quoted = "⚡ *vLLM Serving* [#42]\n🎯 Score: 9.4"
-        assert await router.resolve_breakthrough_id(channel="whatsapp", quoted_text=quoted) == 42
+        assert await router.resolve_breakthrough_id(channel="mock_ch", quoted_text=quoted) == 42
 
     @pytest.mark.asyncio
     async def test_tier3_dispatcher_delivery_cache(self):
         dispatcher = DeliveryDispatcher()
-        dispatcher._recent_deliveries[("whatsapp", "wamid_555")] = 88
+        dispatcher._recent_deliveries[("mock_ch", "wamid_555")] = 88
 
         router = InboundRouter(dispatcher=dispatcher)
-        assert await router.resolve_breakthrough_id(channel="whatsapp", quoted_message_id="wamid_555") == 88
+        assert await router.resolve_breakthrough_id(channel="mock_ch", quoted_message_id="wamid_555") == 88
 
     @pytest.mark.asyncio
     async def test_tier4_quoted_title_db_match(self):
@@ -525,7 +524,7 @@ class TestBreakthroughIdResolutionWaterfall:
         dispatcher._latest_breakthrough_id = 92
 
         router = InboundRouter(dispatcher=dispatcher)
-        assert await router.resolve_breakthrough_id(channel="whatsapp") == 92
+        assert await router.resolve_breakthrough_id(channel="mock_ch") == 92
 
     @pytest.mark.asyncio
     async def test_tier6_db_latest_breakthrough_fallback(self):
@@ -548,7 +547,7 @@ class TestInboundProcessingAndPersistence:
 
         router = InboundRouter(preferences_service=prefs)
         msg = InboundMessage(
-            channel="whatsapp",
+            channel="mock_ch",
             sender_id="491701234567@c.us",
             reaction_emoji="🎯",
             quoted_text="⚡ Card Title [#42]",
@@ -565,7 +564,7 @@ class TestInboundProcessingAndPersistence:
             breakthrough_id=42,
             rating=FeedbackRating.HIT,
             user_identifier="491701234567@c.us",
-            source="whatsapp",
+            source="mock_ch",
             notes="Reaction 🎯",
         )
 
@@ -599,7 +598,7 @@ class TestInboundProcessingAndPersistence:
     async def test_unresolvable_breakthrough_returns_error(self):
         router = InboundRouter()
         msg = InboundMessage(
-            channel="whatsapp",
+            channel="mock_ch",
             sender_id="491701234567@c.us",
             reaction_emoji="🎯",
         )
@@ -618,7 +617,7 @@ class TestInboundSlashCommandsAndWebhooks:
     async def test_help_command(self):
         router = InboundRouter()
         msg = InboundMessage(
-            channel="whatsapp",
+            channel="mock_ch",
             sender_id="491701234567@c.us",
             text="/help",
         )
@@ -649,7 +648,7 @@ class TestInboundSlashCommandsAndWebhooks:
         with patch("newsscout.dashboard.queries.add_interest_keyword", new=AsyncMock(return_value={"success": True})):
             router = InboundRouter(db=mock_db)
             msg = InboundMessage(
-                channel="whatsapp",
+                channel="mock_ch",
                 sender_id="491701234567@c.us",
                 text="/interest local inference",
             )
@@ -671,32 +670,6 @@ class TestInboundSlashCommandsAndWebhooks:
             assert res.action == "command"
             assert res.command == "radar"
             assert "vllm/vllm" in res.reply_text
-
-    @pytest.mark.asyncio
-    async def test_handle_whatsapp_webhook_reaction(self):
-        prefs = MagicMock(spec=PreferencesService)
-        prefs.record_feedback = AsyncMock()
-
-        router = InboundRouter(preferences_service=prefs)
-        payload = {
-            "event": "message.reaction",
-            "payload": {
-                "from": "491701234567@c.us",
-                "reaction": {
-                    "text": "🎯",
-                    "messageId": "wamid_777",
-                },
-            },
-        }
-        # Provide cache resolution
-        dispatcher = DeliveryDispatcher()
-        dispatcher._recent_deliveries[("whatsapp", "wamid_777")] = 42
-        router.dispatcher = dispatcher
-
-        res = await router.handle_whatsapp_webhook(payload)
-        assert res.action == "feedback"
-        assert res.rating == FeedbackRating.HIT
-        assert res.breakthrough_id == 42
 
     @pytest.mark.asyncio
     async def test_handle_signal_webhook_data_message(self):
