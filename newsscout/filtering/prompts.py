@@ -1,4 +1,4 @@
-﻿"""newsscout.filtering.prompts
+"""newsscout.filtering.prompts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Prompt templates, system instructions, and schema definitions for Stage 2
 Gemini 3.8 Flash evaluation and decision card generation.
@@ -7,10 +7,50 @@ Gemini 3.8 Flash evaluation and decision card generation.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Final, Optional
 
 from newsscout.storage.models import RawItem, Stage1Evaluation
 from newsscout.storage.preferences import ExemplarPair
+
+# ---------------------------------------------------------------------------
+# Prompt Injection Protection
+# ---------------------------------------------------------------------------
+
+# Patterns that attempt to override system instructions or inject role labels
+_INJECTION_PATTERNS: Final[list[tuple[re.Pattern[str], str]]] = [
+    (re.compile(r"(?i)ignore\s+(previous|prior|above|all)\s+instructions"), "[REDACTED]"),
+    (re.compile(r"(?i)ignore\s+(previous|prior|above|all)\s+(prompts?|rules?)"), "[REDACTED]"),
+    (re.compile(r"(?i)\b(system|assistant|user)\s*:\s*"), "[REDACTED]"),
+    (re.compile(r"```+\s*(json|markdown|python|bash|shell|sh)?\s*"), "[FENCE]"),
+    (re.compile(r"(?i)you\s+are\s+now\s+(a|an)\s+"), "[REDACTED]"),
+    (re.compile(r"(?i)disregard\s+(the\s+)?(above|previous|prior|all)"), "[REDACTED]"),
+    (re.compile(r"(?i)new\s+instructions?\s*:"), "[REDACTED]"),
+    (re.compile(r"(?i)act\s+as\s+(a|an)\s+"), "[REDACTED]"),
+]
+
+# Maximum characters per individual text field in the prompt
+_MAX_FIELD_CHARS: Final[int] = 2000
+
+
+def _sanitize_prompt_input(text: str, max_chars: int = _MAX_FIELD_CHARS) -> str:
+    """Sanitize external text before interpolation into LLM prompts.
+
+    - Strips common prompt-injection patterns (role labels, instruction overrides,
+      code-fence closures that could break out of the wrapping tags).
+    - Caps the field to ``max_chars`` characters (default 2000).
+    """
+    if not text:
+        return ""
+
+    sanitized = text
+    for pattern, replacement in _INJECTION_PATTERNS:
+        sanitized = pattern.sub(replacement, sanitized)
+
+    if len(sanitized) > max_chars:
+        sanitized = sanitized[:max_chars] + "...[TRUNCATED]"
+
+    return sanitized
 
 SYSTEM_INSTRUCTION: Final[str] = """You are NewsScout's Principal AI Systems Architect and Lead Engineering Scout.
 Your mission is to rigorously evaluate open-source AI breakthroughs against a senior engineer's exact technical profile.
@@ -181,25 +221,32 @@ def build_evaluation_user_prompt(
         tail = content[-int(max_content_chars * 0.3) :]
         content = f"{head}\n\n... [TRUNCATED FOR LENGTH] ...\n\n{tail}"
 
-    stage1_info = ""
+    meta_str = json.dumps(raw_item.metadata, indent=2, ensure_ascii=False)
+
+    # Sanitize all external fields before interpolation to prevent prompt injection
+    safe_title = _sanitize_prompt_input(raw_item.title or "")
+    safe_source = _sanitize_prompt_input(raw_item.source or "")
+    safe_source_id = _sanitize_prompt_input(raw_item.source_id or "")
+    safe_url = _sanitize_prompt_input(raw_item.url or "")
+    safe_meta = _sanitize_prompt_input(meta_str)
+    safe_content = _sanitize_prompt_input(content, max_chars=max_content_chars + 200)
+    safe_stage1 = ""
     if stage1_eval:
-        stage1_info = (
-            f"- Detected License: {stage1_eval.detected_license or 'Unknown'}\n"
+        safe_stage1 = (
+            f"- Detected License: {_sanitize_prompt_input(stage1_eval.detected_license or 'Unknown')}\n"
             f"- Dockerfile Found: {stage1_eval.has_docker}\n"
             f"- Runnable Code Found: {stage1_eval.has_runnable_code}\n"
         )
 
-    meta_str = json.dumps(raw_item.metadata, indent=2, ensure_ascii=False)
-
     return (
         f"{few_shot_block}\n"
         "### CANDIDATE FOR EVALUATION\n"
-        f"- Title: {raw_item.title}\n"
-        f"- Source: {raw_item.source} (ID: {raw_item.source_id})\n"
-        f"- URL: {raw_item.url}\n"
-        f"{stage1_info}"
-        f"- Metadata:\n```json\n{meta_str}\n```\n\n"
+        f"- Title: {safe_title}\n"
+        f"- Source: {safe_source} (ID: {safe_source_id})\n"
+        f"- URL: {safe_url}\n"
+        f"{safe_stage1}"
+        f"- Metadata:\n<article_metadata>\n{safe_meta}\n</article_metadata>\n\n"
         "### REPOSITORY / PAPER CONTENT & RELEASE NOTES:\n"
-        f"```markdown\n{content}\n```\n\n"
+        f"<article_content>\n{safe_content}\n</article_content>\n\n"
         "Evaluate this candidate and provide your evaluation strictly in valid JSON matching the schema."
     )

@@ -1,4 +1,4 @@
-﻿"""newsscout.search.aggregator
+"""newsscout.search.aggregator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 MultiSearchAggregator: parallel multi-engine search execution, timeout isolation,
 cross-engine deduplication, Reciprocal Rank Fusion, and SQLite raw_items filtering.
@@ -7,7 +7,8 @@ cross-engine deduplication, Reciprocal Rank Fusion, and SQLite raw_items filteri
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import hashlib
 import inspect
 import logging
@@ -32,8 +33,78 @@ from newsscout.storage.models import RawItem
 logger = logging.getLogger(__name__)
 
 
+def _select_newest_date(
+    current: Optional[str], candidate: Optional[str]
+) -> Optional[str]:
+    """Returns the newer of two date strings (or the non-None one).
+
+    Dates are compared by ISO-8601 string ordering, which is correct for
+    properly formatted dates. Falls back to the non-None value if either
+    is missing or unparseable.
+    """
+    if not candidate:
+        return current
+    if not current:
+        return candidate
+    # ISO-8601 string comparison works for same-format dates
+    try:
+        return candidate if candidate > current else current
+    except Exception:
+        return current
+
+
+# ============================================================================
+# Circuit Breaker for Search Providers (R3)
+# ============================================================================
+
+@dataclass
+class CircuitBreakerState:
+    """Tracks the circuit breaker state for a single search provider."""
+
+    consecutive_failures: int = 0
+    open_until: Optional[datetime] = None  # UTC timestamp when cooldown expires
+
+    @property
+    def is_open(self) -> bool:
+        """Returns True if the circuit is currently open (in cooldown)."""
+        if self.open_until is None:
+            return False
+        return datetime.now(timezone.utc) < self.open_until
+
+    def record_failure(self, threshold: int, cooldown_seconds: float) -> None:
+        """Records a consecutive failure and opens the circuit if threshold is reached."""
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= threshold:
+            self.open_until = datetime.now(timezone.utc) + timedelta(seconds=cooldown_seconds)
+            logger.warning(
+                "[circuit-breaker] Provider circuit OPENED after %d consecutive failures. "
+                "Cooldown: %.0fs",
+                self.consecutive_failures,
+                cooldown_seconds,
+            )
+
+    def record_success(self) -> None:
+        """Records a successful call and resets the circuit."""
+        if self.consecutive_failures > 0 or self.open_until is not None:
+            logger.info(
+                "[circuit-breaker] Provider circuit CLOSED after recovery (was %d failures).",
+                self.consecutive_failures,
+            )
+        self.consecutive_failures = 0
+        self.open_until = None
+
+    def reset(self) -> None:
+        """Manually resets the circuit breaker state (e.g. after cooldown expiry test)."""
+        self.consecutive_failures = 0
+        self.open_until = None
+
+
 class MultiSearchAggregator:
-    """Orchestrates parallel search across multiple providers with RRF scoring and deduplication."""
+    """Orchestrates parallel search across multiple providers with RRF scoring and deduplication.
+
+    Includes a per-provider circuit breaker (R3) that temporarily disables providers
+    after consecutive failures.
+    """
 
     def __init__(
         self,
@@ -42,6 +113,8 @@ class MultiSearchAggregator:
         timeout_seconds: Optional[float] = None,
         client: Optional[httpx.AsyncClient] = None,
         db: Optional[Database] = None,
+        circuit_failure_threshold: Optional[int] = None,
+        circuit_cooldown_seconds: Optional[float] = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.timeout_seconds = (
@@ -51,6 +124,19 @@ class MultiSearchAggregator:
         )
         self.client = client
         self.db = db
+
+        # Circuit breaker configuration (R3)
+        self._circuit_failure_threshold: int = (
+            circuit_failure_threshold
+            if circuit_failure_threshold is not None
+            else getattr(self.settings, "circuit_breaker_failure_threshold", 3)
+        )
+        self._circuit_cooldown_seconds: float = (
+            circuit_cooldown_seconds
+            if circuit_cooldown_seconds is not None
+            else getattr(self.settings, "circuit_breaker_cooldown_seconds", 1800.0)
+        )
+        self._circuit_states: dict[str, CircuitBreakerState] = {}
 
         if providers is not None:
             self.providers = list(providers)
@@ -62,16 +148,39 @@ class MultiSearchAggregator:
                 ExaSearchProvider(settings=self.settings, client=self.client),
             ]
 
+    def _get_circuit_state(self, provider_name: str) -> CircuitBreakerState:
+        """Returns (or creates) the circuit breaker state for a provider."""
+        if provider_name not in self._circuit_states:
+            self._circuit_states[provider_name] = CircuitBreakerState()
+        return self._circuit_states[provider_name]
+
+    def is_provider_in_cooldown(self, provider_name: str) -> bool:
+        """Returns True if the provider's circuit breaker is currently open."""
+        return self._get_circuit_state(provider_name).is_open
+
+    def get_circuit_state(self, provider_name: str) -> CircuitBreakerState:
+        """Public accessor for inspecting circuit breaker state (for tests/diagnostics)."""
+        return self._get_circuit_state(provider_name)
+
     async def get_active_providers(self) -> list[BaseSearchProvider]:
-        """Returns the list of currently available providers."""
+        """Returns the list of currently available providers, excluding those in cooldown."""
         active: list[BaseSearchProvider] = []
         for p in self.providers:
             try:
                 avail = p.is_available()
                 if inspect.isawaitable(avail):
                     avail = await avail
-                if avail:
-                    active.append(p)
+                if not avail:
+                    continue
+                # Check circuit breaker (R3)
+                state = self._get_circuit_state(p.name)
+                if state.is_open:
+                    logger.info(
+                        "[aggregator] Provider '%s' is in circuit-breaker cooldown, skipping.",
+                        p.name,
+                    )
+                    continue
+                active.append(p)
             except Exception as err:
                 logger.warning("[aggregator] Error checking availability for '%s': %s", p.name, err)
         return active
@@ -82,7 +191,10 @@ class MultiSearchAggregator:
         limit_per_provider: int = 10,
         **kwargs: Any,
     ) -> list[SearchResult]:
-        """Queries all active providers in parallel and returns deduplicated, ranked results."""
+        """Queries all active providers in parallel and returns deduplicated, ranked results.
+
+        Providers in circuit-breaker cooldown are automatically excluded.
+        """
         cleaned_query = query.strip()
         if not cleaned_query:
             return []
@@ -94,17 +206,22 @@ class MultiSearchAggregator:
 
         async def _safe_search(provider: BaseSearchProvider) -> list[SearchResult]:
             provider_name = provider.name
+            circuit = self._get_circuit_state(provider_name)
             try:
-                return await asyncio.wait_for(
+                results = await asyncio.wait_for(
                     provider.search(cleaned_query, limit=limit_per_provider, **kwargs),
                     timeout=self.timeout_seconds,
                 )
+                # Success — reset circuit breaker
+                circuit.record_success()
+                return results
             except asyncio.TimeoutError:
                 logger.warning(
                     "[aggregator] Engine '%s' timed out after %.1fs",
                     provider_name,
                     self.timeout_seconds,
                 )
+                circuit.record_failure(self._circuit_failure_threshold, self._circuit_cooldown_seconds)
                 return []
             except Exception as err:
                 logger.warning(
@@ -112,6 +229,7 @@ class MultiSearchAggregator:
                     provider_name,
                     err,
                 )
+                circuit.record_failure(self._circuit_failure_threshold, self._circuit_cooldown_seconds)
                 return []
 
         results_by_provider = await asyncio.gather(
@@ -176,10 +294,13 @@ class MultiSearchAggregator:
                 if len(item.title) > len(best_title):
                     best_title = item.title
 
-                if item.published_date and not best_published_date:
-                    best_published_date = item.published_date
-                elif item.metadata.get("published_date") and not best_published_date:
-                    best_published_date = str(item.metadata["published_date"])
+                # Select the newest published date across all sources
+                if item.published_date:
+                    best_published_date = _select_newest_date(best_published_date, item.published_date)
+                if item.metadata.get("published_date"):
+                    best_published_date = _select_newest_date(
+                        best_published_date, str(item.metadata["published_date"])
+                    )
 
             # Multi-source confirmation bonus
             multi_source_bonus = 0.2 * (len(discovered_by) - 1)
@@ -252,6 +373,10 @@ class MultiSearchAggregator:
 
         for item in results:
             canonical_url = clean_and_canonicalize_url(item.url)
+            # Skip entries with empty/None canonical URL (e.g. rejected schemes)
+            if not canonical_url:
+                logger.warning("Skipping search result with invalid/empty canonical URL: %s", item.url)
+                continue
             # Deterministic source_id using SHA256 of canonical URL
             url_hash = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()[:16]
             source_id = f"search:{url_hash}"
@@ -276,9 +401,12 @@ class MultiSearchAggregator:
         return raw_items
 
     async def close(self) -> None:
-        """Closes all underlying providers."""
+        """Closes all underlying providers, isolating failures."""
         for p in self.providers:
-            await p.close()
+            try:
+                await p.close()
+            except Exception:
+                logger.warning("Error closing search provider %s", type(p).__name__, exc_info=True)
 
     async def aclose(self) -> None:
         await self.close()

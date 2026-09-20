@@ -1,4 +1,4 @@
-﻿"""newsscout.llm.gemini_client
+"""newsscout.llm.gemini_client
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Native Google Gemini REST driver implementing BaseLLMClient.
 """
@@ -83,6 +83,8 @@ class GeminiLLMClient(BaseLLMClient):
         user_prompt: Optional[str] = None,
     ) -> str:
         actual_prompt = user_prompt if user_prompt is not None else prompt
+        # Clamp temperature to valid Gemini range [0.0, 2.0]
+        temperature = max(0.0, min(2.0, temperature))
         payload: dict[str, Any] = {
             "contents": [
                 {
@@ -111,6 +113,8 @@ class GeminiLLMClient(BaseLLMClient):
         user_prompt: Optional[str] = None,
     ) -> T:
         actual_prompt = user_prompt if user_prompt is not None else prompt
+        # Clamp temperature to valid Gemini range [0.0, 2.0]
+        temperature = max(0.0, min(2.0, temperature))
         schema = json_schema or response_model.model_json_schema()
         payload: dict[str, Any] = {
             "contents": [

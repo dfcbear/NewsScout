@@ -1,4 +1,4 @@
-﻿"""newsscout.llm.openai_client
+"""newsscout.llm.openai_client
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Universal OpenAI-compatible client supporting vLLM, Ollama, llama.cpp,
 Groq, OpenRouter, GLM 5.2, and OpenAI REST endpoints.
@@ -104,7 +104,8 @@ class OpenAICompatibleClient(BaseLLMClient):
             models_url = self.endpoint_url.replace("/chat/completions", "/models")
             resp = await client.get(models_url, headers=self._get_headers(), timeout=5.0)
             return resp.status_code in (200, 401, 403)
-        except Exception:
+        except Exception as exc:
+            logger.warning("OpenAI-compatible health_check failed: %s: %s", type(exc).__name__, exc)
             return False
 
     async def generate_text(

@@ -1,4 +1,4 @@
-﻿"""Database Schema Migrations Runner for NewsScout.
+"""Database Schema Migrations Runner for NewsScout.
 
 Provides transactional, versioned database schema upgrades, 8-table DDL,
 performance indexes, foreign key cascading, and integrity verification.
@@ -258,6 +258,12 @@ CREATE INDEX idx_feedback_rating ON feedback(rating);
 CREATE INDEX idx_feedback_created ON feedback(created_at DESC);
 """
 
+MIGRATION_003_UP = """
+-- Migration 003: Add composite index for keyset pagination in deduplicate_against_db
+-- Supports ORDER BY ingested_at DESC, id DESC with WHERE ingested_at >= :cutoff
+CREATE INDEX IF NOT EXISTS idx_raw_items_ingested_url ON raw_items(ingested_at DESC, url);
+"""
+
 # Registry of all migrations in sequential order
 MIGRATIONS: Final[list[Migration]] = [
     Migration(
@@ -270,6 +276,11 @@ MIGRATIONS: Final[list[Migration]] = [
         name="002_multi_messenger_feedback",
         up_sql=MIGRATION_002_UP,
         down_sql=MIGRATION_002_DOWN,
+    ),
+    Migration(
+        version=3,
+        name="003_dedup_keyset_pagination_index",
+        up_sql=MIGRATION_003_UP,
     ),
 ]
 

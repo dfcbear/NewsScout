@@ -1,4 +1,4 @@
-﻿"""newsscout.delivery.telegram
+"""newsscout.delivery.telegram
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Telegram Gateway adapter wrapping TelegramBot under the BaseMessengerGateway protocol.
 Preserves 100% backward compatibility with inline keyboard callback buttons,
@@ -7,6 +7,7 @@ digest menus, and audio track delivery.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -163,6 +164,15 @@ class TelegramGateway(BaseMessengerGateway):
                 error=None if msg_id else "No message_id returned by Telegram API",
                 details=response,
             )
+        except asyncio.TimeoutError:
+            logger.warning("TelegramGateway send_card timed out for chat_id=%s", chat_id)
+            return DeliveryReceipt(
+                channel="telegram",
+                success=False,
+                message_id=None,
+                recipient=chat_id,
+                error="Telegram API timeout",
+            )
         except Exception as err:
             logger.error("TelegramGateway send_card error: %s", mask_telegram_url(str(err)))
             return DeliveryReceipt(
@@ -238,6 +248,15 @@ class TelegramGateway(BaseMessengerGateway):
                 error=None if msg_id else "No message_id returned by Telegram API",
                 details=response,
             )
+        except asyncio.TimeoutError:
+            logger.warning("TelegramGateway send_audio timed out for chat_id=%s", chat_id)
+            return DeliveryReceipt(
+                channel="telegram",
+                success=False,
+                message_id=None,
+                recipient=chat_id,
+                error="Telegram API timeout",
+            )
         except Exception as err:
             logger.error("TelegramGateway send_audio error: %s", mask_telegram_url(str(err)))
             return DeliveryReceipt(
@@ -282,6 +301,14 @@ class TelegramGateway(BaseMessengerGateway):
                 success=bool(msg_id),
                 message_id=str(msg_id) if msg_id else None,
                 recipient=chat_id,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("TelegramGateway send_text timed out for chat_id=%s", chat_id)
+            return DeliveryReceipt(
+                channel="telegram",
+                success=False,
+                recipient=chat_id,
+                error="Telegram API timeout",
             )
         except Exception as err:
             logger.error("TelegramGateway send_text error: %s", mask_telegram_url(str(err)))

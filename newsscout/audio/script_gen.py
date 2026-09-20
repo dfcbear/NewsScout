@@ -1,4 +1,4 @@
-﻿"""newsscout.audio.script_gen
+"""newsscout.audio.script_gen
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Dialogue script generator for German 2-speaker audio digest tracks.
 
@@ -27,7 +27,7 @@ from newsscout.audio.prompts import (
     format_verdict_prompt,
 )
 from newsscout.config import Settings, get_settings
-from newsscout.llm.base import BaseLLMClient
+from newsscout.llm.base import BaseLLMClient, LLMResponseValidationError
 from newsscout.llm.factory import create_llm_client
 from newsscout.storage.models import (
     AudioTurn,
@@ -164,6 +164,8 @@ class DialogueScriptGenerator:
             system_instruction=DIALOGUE_SYSTEM_PROMPT,
             temperature=0.3,
         )
+        if not payload.turns:
+            raise LLMResponseValidationError("Executive summary script has no turns")
         turns = [AudioTurn(speaker=t.speaker, text=t.text) for t in payload.turns]
         return DialogueScript(
             track_number=1,
@@ -185,6 +187,8 @@ class DialogueScriptGenerator:
             system_instruction=DIALOGUE_SYSTEM_PROMPT,
             temperature=0.3,
         )
+        if not payload.turns:
+            raise LLMResponseValidationError(f"Deep dive script for '{breakthrough.title}' has no turns")
         turns = [AudioTurn(speaker=t.speaker, text=t.text) for t in payload.turns]
         return DialogueScript(
             track_number=track_number,
@@ -205,6 +209,8 @@ class DialogueScriptGenerator:
             system_instruction=DIALOGUE_SYSTEM_PROMPT,
             temperature=0.3,
         )
+        if not payload.turns:
+            raise LLMResponseValidationError("Serendipity script has no turns")
         turns = [AudioTurn(speaker=t.speaker, text=t.text) for t in payload.turns]
         return DialogueScript(
             track_number=track_number,
@@ -225,6 +231,8 @@ class DialogueScriptGenerator:
             system_instruction=DIALOGUE_SYSTEM_PROMPT,
             temperature=0.3,
         )
+        if not payload.turns:
+            raise LLMResponseValidationError("Verdict script has no turns")
         turns = [AudioTurn(speaker=t.speaker, text=t.text) for t in payload.turns]
         return DialogueScript(
             track_number=track_number,

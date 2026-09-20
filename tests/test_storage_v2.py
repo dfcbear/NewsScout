@@ -1,4 +1,4 @@
-﻿"""tests/test_storage_v2.py
+"""tests/test_storage_v2.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Dedicated test suite for Migration 002 and Multi-Messenger Storage Evolution:
 - Schema migration from v1 to v2 preserving existing records
@@ -30,8 +30,8 @@ class TestMigration002Evolution:
 
     def test_migration_002_applied_in_sequence(self, sync_db_conn: sqlite3.Connection):
         applied = apply_migrations(conn=sync_db_conn)
-        assert applied == [1, 2]
-        assert get_applied_versions(sync_db_conn) == {1, 2}
+        assert applied == [1, 2, 3]
+        assert get_applied_versions(sync_db_conn) == {1, 2, 3}
 
         # Check table columns
         cols = {r[1] for r in sync_db_conn.execute("PRAGMA table_info(feedback);").fetchall()}

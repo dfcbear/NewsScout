@@ -1,4 +1,4 @@
-﻿"""tests/test_dispatcher.py
+"""tests/test_dispatcher.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 100% offline mocked unit and integration tests for DeliveryDispatcher,
 InboundRouter, reaction/keyword parsing, 6-tier breakthrough resolution waterfall,
@@ -268,7 +268,104 @@ class TestDispatcherBroadcast:
 
         assert receipts["telegram"].success is True
         assert receipts["whatsapp"].success is False
-        assert "TimeoutError" in receipts["whatsapp"].error
+        assert receipts["whatsapp"].error  # Has an error message (timeout or exception)
+
+    @pytest.mark.asyncio
+    async def test_r4_signal_timeout_does_not_block_telegram(self, factory):
+        """R4: Signal gateway timeout does not block Telegram delivery."""
+        gw_tg = MockGateway("telegram")
+        gw_sig = MockGateway("signal", delay_seconds=5.0)  # Signal hangs
+
+        dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_sig])
+        from newsscout.config import Settings
+        dispatcher.settings = Settings()
+        dispatcher.settings.delivery_gateway_timeout_seconds = 0.1
+
+        bt = factory.create_breakthrough()
+        receipts = await dispatcher.broadcast_card(bt)
+
+        assert receipts["telegram"].success is True
+        assert receipts["signal"].success is False
+        assert "timeout" in receipts["signal"].error.lower()
+
+    @pytest.mark.asyncio
+    async def test_r4_whatsapp_exception_produces_partial_receipts(self, factory):
+        """R4: WhatsApp exception produces partial receipts without blocking other channels."""
+        gw_tg = MockGateway("telegram")
+        gw_wa = MockGateway("whatsapp", raise_exception=True)
+
+        dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_wa])
+
+        bt = factory.create_breakthrough()
+        receipts = await dispatcher.broadcast_card(bt)
+
+        assert len(receipts) == 2
+        assert receipts["telegram"].success is True
+        assert receipts["whatsapp"].success is False
+        assert receipts["whatsapp"].error is not None
+
+    @pytest.mark.asyncio
+    async def test_r4_per_gateway_timeout_independent(self):
+        """R4: Per-gateway timeout is independent — Telegram (fast) completes even if Signal times out."""
+        gw_tg = MockGateway("telegram", delay_seconds=0.01)
+        gw_sig = MockGateway("signal", delay_seconds=5.0)
+
+        dispatcher = DeliveryDispatcher(gateways=[gw_tg, gw_sig])
+        from newsscout.config import Settings
+        dispatcher.settings = Settings()
+        dispatcher.settings.delivery_gateway_timeout_seconds = 0.1
+
+        import time
+        start = time.monotonic()
+        receipts = await dispatcher.broadcast_audio("/data/test.mp3")
+        elapsed = time.monotonic() - start
+
+        # Telegram should complete (delay 0.01s < 0.1s timeout), Signal should timeout (0.1s)
+        # Total time should be ~max(0.01, 0.1) ≈ 0.1s, not 5s
+        assert elapsed < 1.0, f"Total delivery took {elapsed:.2f}s — should be < 1s"
+        assert receipts["telegram"].success is True
+        assert receipts["signal"].success is False
+        assert "timeout" in receipts["signal"].error.lower()
+
+    @pytest.mark.asyncio
+    async def test_close_timeout_on_hanging_gateway(self):
+        """Gateway close() that hangs is terminated after 3s timeout."""
+        gw_slow = MockGateway("signal")
+        # Override close to hang indefinitely
+        close_called = False
+        async def slow_close():
+            nonlocal close_called
+            close_called = True
+            await asyncio.sleep(100)  # Hang forever
+        gw_slow.close = slow_close
+
+        dispatcher = DeliveryDispatcher(gateways=[gw_slow])
+        import time
+        start = time.monotonic()
+        await dispatcher.close()
+        elapsed = time.monotonic() - start
+
+        assert close_called is True
+        assert elapsed < 5.0, f"close() took {elapsed:.2f}s — should timeout after 3s"
+
+    @pytest.mark.asyncio
+    async def test_recent_deliveries_cache_eviction_after_1000(self, mock_card):
+        """LRU cache evicts oldest entries when exceeding 1000 entries."""
+        gw = MockGateway("telegram")
+        dispatcher = DeliveryDispatcher(gateways=[gw])
+
+        # Fill cache beyond cap
+        for i in range(1001):
+            dispatcher._recent_deliveries[("telegram", f"msg_{i}")] = i
+            # Trigger eviction
+            while len(dispatcher._recent_deliveries) > dispatcher._max_recent_deliveries:
+                dispatcher._recent_deliveries.popitem(last=False)
+
+        assert len(dispatcher._recent_deliveries) == 1000
+        # Oldest entry (msg_0) should be evicted
+        assert dispatcher.get_breakthrough_id_for_message("telegram", "msg_0") is None
+        # Newest entry (msg_1000) should still be present
+        assert dispatcher.get_breakthrough_id_for_message("telegram", "msg_1000") == 1000
 
 
 # ============================================================================

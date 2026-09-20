@@ -1,4 +1,4 @@
-﻿"""newsscout.delivery.dispatcher
+"""newsscout.delivery.dispatcher
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Unified multi-channel delivery dispatcher for NewsScout.
 Manages registered messenger gateways (Telegram, WhatsApp, Signal) and orchestrates
@@ -8,6 +8,7 @@ concurrent broadcasting with per-channel fault isolation.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -39,7 +40,8 @@ class DeliveryDispatcher:
         self.settings = settings or get_settings()
         self.preferences_service = preferences_service
         self._gateways: dict[str, BaseMessengerGateway] = {}
-        self._recent_deliveries: dict[tuple[str, str], int] = {}  # (channel, message_id) -> breakthrough_id
+        self._recent_deliveries: OrderedDict[tuple[str, str], int] = OrderedDict()  # LRU, capped at 1000
+        self._max_recent_deliveries: int = 1000
         self._latest_breakthrough_id: Optional[int] = None
 
         if gateways:
@@ -85,6 +87,8 @@ class DeliveryDispatcher:
         Guarantees:
         - Concurrent execution via asyncio.gather.
         - Strict per-channel fault isolation (exceptions are captured in DeliveryReceipt).
+        - Per-gateway timeout enforcement (R4): unstable gateways (Signal, WhatsApp)
+          are wrapped with asyncio.wait_for to prevent them from blocking the entire round.
         - Tracks (channel, message_id) -> breakthrough_id in delivery cache.
         """
         enabled = self.get_enabled_gateways()
@@ -100,11 +104,19 @@ class DeliveryDispatcher:
         else:
             breakthrough_id = card.breakthrough_id
 
+        # Per-gateway timeout (R4): ALL gateways get timeout enforcement
+        gateway_timeout = getattr(
+            self.settings, "delivery_gateway_timeout_seconds", 10.0
+        )
+
         async def _safe_send_card(gw: BaseMessengerGateway) -> tuple[str, DeliveryReceipt]:
             channel = gw.channel_name
             rec = recipients.get(channel)
             try:
-                receipt = await gw.send_card(card, recipient=rec)
+                receipt = await asyncio.wait_for(
+                    gw.send_card(card, recipient=rec),
+                    timeout=gateway_timeout,
+                )
                 if not isinstance(receipt, DeliveryReceipt):
                     receipt = DeliveryReceipt(
                         channel=channel,
@@ -112,6 +124,17 @@ class DeliveryDispatcher:
                         message_id=str(receipt) if receipt else None,
                     )
                 return channel, receipt
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[dispatcher] Gateway '%s' timed out after %.1fs (card delivery)",
+                    channel,
+                    gateway_timeout,
+                )
+                return channel, DeliveryReceipt(
+                    channel=channel,
+                    success=False,
+                    error=f"Gateway timeout after {gateway_timeout:.1f}s",
+                )
             except Exception as exc:
                 logger.error("Delivery error on channel '%s': %s", channel, exc, exc_info=True)
                 return channel, DeliveryReceipt(
@@ -127,7 +150,11 @@ class DeliveryDispatcher:
         for channel, receipt in results:
             receipts[channel] = receipt
             if receipt.success and receipt.message_id and breakthrough_id is not None:
-                self._recent_deliveries[(channel, str(receipt.message_id))] = breakthrough_id
+                key = (channel, str(receipt.message_id))
+                self._recent_deliveries[key] = breakthrough_id
+                # LRU eviction: remove oldest entries beyond cap
+                while len(self._recent_deliveries) > self._max_recent_deliveries:
+                    self._recent_deliveries.popitem(last=False)
 
         if breakthrough_id is not None:
             self._latest_breakthrough_id = breakthrough_id
@@ -140,7 +167,11 @@ class DeliveryDispatcher:
         caption: str = "",
         recipients: Optional[dict[str, Optional[str]]] = None,
     ) -> dict[str, DeliveryReceipt]:
-        """Broadcasts an audio file/digest to all enabled gateways concurrently."""
+        """Broadcasts an audio file/digest to all enabled gateways concurrently.
+
+        Per-gateway timeout enforcement (R4): unstable gateways (Signal, WhatsApp)
+        are wrapped with asyncio.wait_for to prevent them from blocking the entire round.
+        """
         enabled = self.get_enabled_gateways()
         if not enabled:
             logger.warning("No enabled delivery gateways available for broadcast_audio.")
@@ -148,11 +179,19 @@ class DeliveryDispatcher:
 
         recipients = recipients or {}
 
+        # Per-gateway timeout (R4): ALL gateways get timeout enforcement
+        gateway_timeout = getattr(
+            self.settings, "delivery_gateway_timeout_seconds", 10.0
+        )
+
         async def _safe_send_audio(gw: BaseMessengerGateway) -> tuple[str, DeliveryReceipt]:
             channel = gw.channel_name
             rec = recipients.get(channel)
             try:
-                receipt = await gw.send_audio(file_path=file_path, caption=caption, recipient=rec)
+                receipt = await asyncio.wait_for(
+                    gw.send_audio(file_path=file_path, caption=caption, recipient=rec),
+                    timeout=gateway_timeout,
+                )
                 if not isinstance(receipt, DeliveryReceipt):
                     receipt = DeliveryReceipt(
                         channel=channel,
@@ -160,6 +199,17 @@ class DeliveryDispatcher:
                         message_id=str(receipt) if receipt else None,
                     )
                 return channel, receipt
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "[dispatcher] Gateway '%s' timed out after %.1fs (audio delivery)",
+                    channel,
+                    gateway_timeout,
+                )
+                return channel, DeliveryReceipt(
+                    channel=channel,
+                    success=False,
+                    error=f"Gateway timeout after {gateway_timeout:.1f}s",
+                )
             except Exception as exc:
                 logger.error("Audio delivery error on channel '%s': %s", channel, exc, exc_info=True)
                 return channel, DeliveryReceipt(
@@ -195,22 +245,45 @@ class DeliveryDispatcher:
                 error=f"Gateway for channel '{channel}' is disabled.",
             )
 
+        gateway_timeout = getattr(
+            self.settings, "delivery_gateway_timeout_seconds", 10.0
+        )
+
         try:
             if card is not None:
-                receipt = await gw.send_card(card, recipient=recipient)
+                receipt = await asyncio.wait_for(
+                    gw.send_card(card, recipient=recipient),
+                    timeout=gateway_timeout,
+                )
                 bid = card.id if isinstance(card, Breakthrough) else card.breakthrough_id
                 if receipt.success and receipt.message_id and bid is not None:
-                    self._recent_deliveries[(channel, str(receipt.message_id))] = bid
+                    key = (channel, str(receipt.message_id))
+                    self._recent_deliveries[key] = bid
+                    # LRU eviction: remove oldest entries beyond cap
+                    while len(self._recent_deliveries) > self._max_recent_deliveries:
+                        self._recent_deliveries.popitem(last=False)
                     self._latest_breakthrough_id = bid
                 return receipt
             elif audio_path is not None:
-                return await gw.send_audio(audio_path, caption=caption, recipient=recipient)
+                return await asyncio.wait_for(
+                    gw.send_audio(audio_path, caption=caption, recipient=recipient),
+                    timeout=gateway_timeout,
+                )
             else:
                 return DeliveryReceipt(
                     channel=channel,
                     success=False,
                     error="Neither card nor audio_path was provided for delivery.",
                 )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[dispatcher] Targeted send to '%s' timed out after %.1fs", channel, gateway_timeout
+            )
+            return DeliveryReceipt(
+                channel=channel,
+                success=False,
+                error=f"Gateway timeout after {gateway_timeout:.1f}s",
+            )
         except Exception as exc:
             logger.error("Targeted send error on channel '%s': %s", channel, exc, exc_info=True)
             return DeliveryReceipt(
@@ -242,13 +315,15 @@ class DeliveryDispatcher:
         return dict(results)
 
     async def close(self) -> None:
-        """Closes all gateways and releases resources."""
+        """Closes all gateways and releases resources with a 3s timeout per gateway."""
         for gw in self._gateways.values():
             if hasattr(gw, "close") and callable(gw.close):
                 try:
                     res = gw.close()
                     if asyncio.iscoroutine(res):
-                        await res
+                        await asyncio.wait_for(res, timeout=3.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Gateway '%s' close() timed out after 3.0s", gw.channel_name)
                 except Exception as err:
                     logger.debug("Error closing gateway '%s': %s", gw.channel_name, err)
 

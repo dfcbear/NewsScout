@@ -1,4 +1,4 @@
-﻿"""tests/test_adversarial_stress.py
+"""tests/test_adversarial_stress.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Adversarial Concurrency & Stress Harness for Milestone 1:
 1. SQLite WAL high-concurrency competing read/write threads and tasks under rapid fire
@@ -36,7 +36,7 @@ from newsscout.storage.preferences import PreferencesService
 
 
 # ============================================================================
-# Section 1: SQLite WAL Concurrency & busy_timeout=5000 Stress Testing
+# Section 1: SQLite WAL Concurrency & busy_timeout=15000 Stress Testing
 # ============================================================================
 
 class TestWALConcurrencyStress:
@@ -46,7 +46,7 @@ class TestWALConcurrencyStress:
         """25 concurrent threads rapidly writing with individual connections.
         
         Validates:
-        - busy_timeout=5000 queues competing threads without 'database is locked'.
+        - busy_timeout=15000 queues competing threads without 'database is locked'.
         - Zero lost updates across 250 cumulative writes.
         """
         # Initialize schema first
@@ -301,7 +301,7 @@ class TestMigrationAdversarialStress:
     def test_rapid_loop_idempotency(self, sync_db_conn: sqlite3.Connection):
         """Calling apply_migrations 50 times repeatedly in a tight loop."""
         first_run = apply_migrations(conn=sync_db_conn)
-        assert first_run == [1, 2]
+        assert first_run == [1, 2, 3]
 
         for _ in range(50):
             res = apply_migrations(conn=sync_db_conn)

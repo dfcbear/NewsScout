@@ -1,4 +1,4 @@
-﻿"""newsscout.dashboard.app
+"""newsscout.dashboard.app
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 FastAPI web dashboard for NewsScout — mobile-first, Tailscale-accessible.
 
@@ -8,11 +8,12 @@ and web-based feedback recording with a lightweight vanilla HTML frontend.
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -32,9 +33,16 @@ from newsscout.dashboard.queries import (
     remove_tracked_repo,
     toggle_watchlist,
 )
+from newsscout.dashboard.security import (
+    FixedWindowRateLimiter,
+    rate_limit_dependency,
+    verify_api_key,
+)
 from newsscout.storage.db import Database
 from newsscout.storage.migrations import apply_migrations
 from newsscout.storage.preferences import PreferencesService
+
+logger = logging.getLogger(__name__)
 
 _DASHBOARD_DIR = Path(__file__).resolve().parent
 _TEMPLATE_PATH = _DASHBOARD_DIR / "templates" / "index.html"
@@ -84,6 +92,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db = db
     app.state.preferences = preferences
     app.state.settings = settings
+    app.state.rate_limiter = FixedWindowRateLimiter(
+        max_requests=settings.api_rate_limit_per_minute,
+        window_seconds=60,
+    )
+
+    # Security dependencies applied to all state-changing endpoints
+    _security_deps = [Depends(verify_api_key), Depends(rate_limit_dependency)]
 
     # ========================================================================
     # Page Routes
@@ -133,7 +148,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def api_watchlist() -> list[dict[str, Any]]:
         return await get_watchlist(db)
 
-    @app.post("/api/breakthroughs/{breakthrough_id}/watchlist")
+    @app.post("/api/breakthroughs/{breakthrough_id}/watchlist", dependencies=_security_deps)
     async def api_toggle_watchlist(breakthrough_id: int) -> dict[str, Any]:
         result = await toggle_watchlist(db, breakthrough_id)
         if not result.get("success"):
@@ -148,7 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def api_stats() -> dict[str, Any]:
         return await get_feedback_stats(db)
 
-    @app.post("/api/feedback")
+    @app.post("/api/feedback", dependencies=_security_deps)
     async def api_record_feedback(request: Request) -> dict[str, Any]:
         body = await request.json()
         raw_id = body.get("breakthrough_id")
@@ -189,7 +204,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Returns active sources, tracked GitHub repos, and custom keywords."""
         return await get_topic_radar(db)
 
-    @app.post("/api/topics/repos")
+    @app.post("/api/topics/repos", dependencies=_security_deps)
     async def api_add_tracked_repo(request: Request) -> dict[str, Any]:
         """Adds a GitHub repository to the tracked list."""
         body = await request.json()
@@ -201,7 +216,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=result.get("error", "Failed to add repository"))
         return result
 
-    @app.delete("/api/topics/repos/{owner}/{repo}")
+    @app.delete("/api/topics/repos/{owner}/{repo}", dependencies=_security_deps)
     async def api_remove_tracked_repo(owner: str, repo: str) -> dict[str, Any]:
         """Removes a GitHub repository from the tracked list."""
         repo_slug = f"{owner}/{repo}"
@@ -210,7 +225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=result.get("error", "Failed to remove repository"))
         return result
 
-    @app.post("/api/topics/keywords")
+    @app.post("/api/topics/keywords", dependencies=_security_deps)
     async def api_add_interest_keyword(request: Request) -> dict[str, Any]:
         """Adds an interest keyword to the radar."""
         body = await request.json()
@@ -222,7 +237,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=result.get("error", "Failed to add keyword"))
         return result
 
-    @app.delete("/api/topics/keywords/{keyword}")
+    @app.delete("/api/topics/keywords/{keyword}", dependencies=_security_deps)
     async def api_remove_interest_keyword(keyword: str) -> dict[str, Any]:
         """Removes an interest keyword from the radar."""
         result = await remove_interest_keyword(db, keyword)
@@ -314,11 +329,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "qr_image_url": status.qr_image_url,
                 "error": status.error,
             }
-        except Exception as exc:
+        except Exception:
+            logger.exception("Error fetching pairing status for channel '%s'", channel_lower)
             return {
                 "channel": channel_lower,
                 "status": "error",
-                "error": str(exc),
+                "error": "Internal server error while fetching pairing status.",
             }
 
     return app

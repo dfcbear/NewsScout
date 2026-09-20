@@ -1,4 +1,4 @@
-﻿"""newsscout.config
+"""newsscout.config
 ~~~~~~~~~~~~~~~~~~
 Centralized application configuration using Pydantic Settings v2.
 Reads from environment variables and optional .env file with type safety,
@@ -7,11 +7,13 @@ secret masking, and platform defaults for Raspberry Pi 5.
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from zoneinfo import available_timezones
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,6 +48,16 @@ class Settings(BaseSettings):
         default=8000,
         validation_alias=AliasChoices("NEWSSCOUT_PORT", "PORT"),
     )
+    # API security: when set, all POST/DELETE endpoints require this key
+    api_secret_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("NEWSSCOUT_API_KEY", "API_KEY"),
+    )
+    api_rate_limit_per_minute: int = Field(
+        default=60,
+        ge=1,
+        validation_alias=AliasChoices("NEWSSCOUT_API_RATE_LIMIT", "API_RATE_LIMIT"),
+    )
     timezone: str = Field(
         default="Europe/Berlin",
         validation_alias=AliasChoices("NEWSSCOUT_TIMEZONE", "NEWSSCOUT_TZ", "TZ", "BRIEFING_TIMEZONE", "TIMEZONE"),
@@ -59,7 +71,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("NEWSSCOUT_DB_PATH", "DB_PATH", "SQLITE_DB_PATH"),
     )
     sqlite_busy_timeout_ms: int = Field(
-        default=5000,
+        default=15000,
         validation_alias=AliasChoices("NEWSSCOUT_SQLITE_BUSY_TIMEOUT", "SQLITE_BUSY_TIMEOUT", "SQLITE_BUSY_TIMEOUT_MS"),
     )
     sqlite_cache_size_kb: int = Field(
@@ -108,6 +120,7 @@ class Settings(BaseSettings):
     )
     llm_timeout_seconds: float = Field(
         default=45.0,
+        ge=1.0,
         validation_alias=AliasChoices("NEWSSCOUT_LLM_TIMEOUT", "LLM_TIMEOUT_SECONDS"),
     )
     llm_fallback_provider: Literal["gemini", "openai_compatible", "none", "mock"] = Field(
@@ -149,6 +162,7 @@ class Settings(BaseSettings):
     )
     delivery_timeout_seconds: float = Field(
         default=15.0,
+        ge=1.0,
         validation_alias=AliasChoices("NEWSSCOUT_DELIVERY_TIMEOUT_SECONDS", "DELIVERY_TIMEOUT_SECONDS", "DELIVERY_TIMEOUT"),
     )
     # WhatsApp (WAHA / Baileys bridge)
@@ -235,6 +249,7 @@ class Settings(BaseSettings):
     )
     search_timeout_seconds: float = Field(
         default=8.0,
+        ge=1.0,
         validation_alias=AliasChoices("NEWSSCOUT_SEARCH_TIMEOUT_SECONDS", "SEARCH_TIMEOUT_SECONDS", "SEARCH_TIMEOUT"),
     )
     search_max_results_per_engine: int = Field(
@@ -244,6 +259,21 @@ class Settings(BaseSettings):
     search_max_queries_per_cycle: int = Field(
         default=5,
         validation_alias=AliasChoices("NEWSSCOUT_SEARCH_MAX_QUERIES_PER_CYCLE", "SEARCH_MAX_QUERIES_PER_CYCLE"),
+    )
+    # Circuit Breaker (R3)
+    circuit_breaker_failure_threshold: int = Field(
+        default=3,
+        validation_alias=AliasChoices("NEWSSCOUT_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "CIRCUIT_BREAKER_FAILURE_THRESHOLD"),
+    )
+    circuit_breaker_cooldown_seconds: float = Field(
+        default=1800.0,  # 30 minutes
+        validation_alias=AliasChoices("NEWSSCOUT_CIRCUIT_BREAKER_COOLDOWN_SECONDS", "CIRCUIT_BREAKER_COOLDOWN_SECONDS"),
+    )
+    # Per-gateway delivery timeout (R4) — independent of delivery_timeout_seconds
+    delivery_gateway_timeout_seconds: float = Field(
+        default=10.0,
+        ge=1.0,
+        validation_alias=AliasChoices("NEWSSCOUT_DELIVERY_GATEWAY_TIMEOUT_SECONDS", "DELIVERY_GATEWAY_TIMEOUT_SECONDS"),
     )
 
     # ==========================================
@@ -291,6 +321,26 @@ class Settings(BaseSettings):
     few_shot_exemplars_count: int = 5
 
     # ==========================================
+    # Ingestion Deduplication Settings (TASK-10 R1)
+    # ==========================================
+    dedup_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("NEWSSCOUT_DEDUP_ENABLED", "DEDUP_ENABLED"),
+    )
+    dedup_similarity_threshold: float = Field(
+        default=0.80,
+        ge=0.0,
+        le=1.0,
+        validation_alias=AliasChoices("NEWSSCOUT_DEDUP_SIMILARITY_THRESHOLD", "DEDUP_SIMILARITY_THRESHOLD"),
+    )
+    dedup_lookback_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        validation_alias=AliasChoices("NEWSSCOUT_DEDUP_LOOKBACK_DAYS", "DEDUP_LOOKBACK_DAYS"),
+    )
+
+    # ==========================================
     # Ingestion & Filtering Thresholds
     # ==========================================
     hn_min_score: int = 120
@@ -300,6 +350,61 @@ class Settings(BaseSettings):
     serendipity_profile_ratio: float = 0.2
     min_breakthrough_score: float = 7.0
     min_roi_score: float = 7.0
+
+    # ==========================================
+    # Validation
+    # ==========================================
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: str) -> str:
+        """Validate timezone against available IANA timezones."""
+        if v not in available_timezones():
+            raise ValueError(
+                f"Invalid timezone '{v}'. Must be a valid IANA timezone "
+                f"(e.g. 'Europe/Berlin', 'America/New_York')."
+            )
+        return v
+
+    @field_validator("schedule_morning", "schedule_afternoon")
+    @classmethod
+    def _validate_schedule_time(cls, v: str) -> str:
+        """Validate schedule time format as HH:MM (24-hour)."""
+        if not re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", v):
+            raise ValueError(
+                f"Invalid schedule time '{v}'. Must be in HH:MM 24-hour format (e.g. '07:00')."
+            )
+        return v
+
+    @field_validator("pipeline_interval_hours")
+    @classmethod
+    def _validate_pipeline_interval(cls, v: int) -> int:
+        """Enforce pipeline_interval_hours range 1-168."""
+        if v < 1 or v > 168:
+            raise ValueError(
+                f"pipeline_interval_hours must be between 1 and 168 (got {v})."
+            )
+        return v
+
+    @field_validator("audio_min_duration_minutes", "audio_max_duration_minutes")
+    @classmethod
+    def _validate_audio_durations(cls, v: int) -> int:
+        """Ensure audio duration values are positive."""
+        if v < 1:
+            raise ValueError(
+                f"Audio duration must be at least 1 minute (got {v})."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _validate_audio_min_le_max(self) -> "Settings":
+        """Ensure audio_min_duration_minutes <= audio_max_duration_minutes."""
+        if self.audio_min_duration_minutes > self.audio_max_duration_minutes:
+            raise ValueError(
+                f"audio_min_duration_minutes ({self.audio_min_duration_minutes}) "
+                f"must be <= audio_max_duration_minutes ({self.audio_max_duration_minutes})."
+            )
+        return self
 
     def ensure_directories(self) -> None:
         """Ensures all configured filesystem directories exist."""

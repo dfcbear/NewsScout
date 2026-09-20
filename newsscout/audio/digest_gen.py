@@ -1,4 +1,4 @@
-﻿"""newsscout.audio.digest_gen
+"""newsscout.audio.digest_gen
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Digest orchestrator that coordinates the full audio digest lifecycle.
 """
@@ -77,6 +77,13 @@ class DigestGenerator:
             track_paths: list[Path] = []
             tracks: list[Track] = []
 
+            # Pre-compute sorted core breakthroughs for deep-dive track lookup
+            core_items = sorted(
+                [b for b in breakthroughs if b.category == Stage2Category.CORE],
+                key=lambda b: b.breakthrough_score,
+                reverse=True,
+            )
+
             for i, script in enumerate(scripts, start=1):
                 track_path = audio_dir / f"track_{i}.mp3"
                 await self.tts_engine.synthesize_script(script, track_path)
@@ -87,11 +94,6 @@ class DigestGenerator:
                 bt_id: Optional[int] = None
                 if script.track_type in (TrackType.DEEP_DIVE_1, TrackType.DEEP_DIVE_2):
                     idx = 0 if script.track_type == TrackType.DEEP_DIVE_1 else 1
-                    core_items = [
-                        b for b in breakthroughs
-                        if b.category == Stage2Category.CORE
-                    ]
-                    core_items.sort(key=lambda b: b.breakthrough_score, reverse=True)
                     if idx < len(core_items) and core_items[idx].id:
                         bt_id = core_items[idx].id
 
@@ -135,6 +137,18 @@ class DigestGenerator:
             digest.status = DigestStatus.FAILED
             await self._update_digest_record(digest)
             raise
+        finally:
+            # Clean up individual track files after merge to save disk space on Pi
+            try:
+                if len(track_paths) > 1 and merged_path.exists():
+                    for tp in track_paths:
+                        try:
+                            if tp.exists():
+                                tp.unlink()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
     async def _fetch_breakthroughs(self) -> list[Breakthrough]:
         # Prioritize breakthroughs that have not yet been featured in any digest track

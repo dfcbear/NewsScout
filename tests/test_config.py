@@ -1,4 +1,4 @@
-﻿"""tests/test_config.py
+"""tests/test_config.py
 ~~~~~~~~~~~~~~~~~~~~
 Unit tests for NewsScout configuration management (Pydantic BaseSettings v2),
 environment overrides, secret masking, and directory initialization.
@@ -21,7 +21,7 @@ class TestConfigSettings:
         assert s.db_path == Path("data/ai_scout.db")
         assert s.audio_output_dir == Path("data/audio")
         assert s.port == 8000
-        assert s.sqlite_busy_timeout_ms == 5000
+        assert s.sqlite_busy_timeout_ms == 15000
         assert s.timezone == "Europe/Berlin"
         assert s.schedule_morning == "07:00"
         assert s.schedule_afternoon == "16:00"
@@ -83,3 +83,66 @@ class TestConfigSettings:
         )
         assert s_ready.has_gemini_credentials is True
         assert s_ready.has_telegram_credentials is True
+
+    # ------------------------------------------------------------------
+    # New validation tests (Paket 4)
+    # ------------------------------------------------------------------
+
+    def test_invalid_timezone_raises(self):
+        """Invalid IANA timezone should raise ValidationError."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            Settings(timezone="Mars/Olympus")
+
+    def test_valid_timezone_accepted(self):
+        """Valid IANA timezone should be accepted."""
+        s = Settings(timezone="America/New_York")
+        assert s.timezone == "America/New_York"
+
+    def test_invalid_schedule_time_raises(self):
+        """Invalid schedule time format should raise ValidationError."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            Settings(schedule_morning="25:00")
+        with pytest.raises(ValidationError):
+            Settings(schedule_afternoon="12:99")
+
+    def test_pipeline_interval_zero_raises(self):
+        """pipeline_interval_hours=0 should raise ValidationError."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            Settings(pipeline_interval_hours=0)
+
+    def test_pipeline_interval_too_large_raises(self):
+        """pipeline_interval_hours=169 should raise ValidationError."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            Settings(pipeline_interval_hours=169)
+
+    def test_audio_min_gt_max_raises(self):
+        """audio_min > audio_max should raise ValidationError."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            Settings(audio_min_duration_minutes=30, audio_max_duration_minutes=15)
+
+    def test_api_secret_key_default_empty(self):
+        """api_secret_key should default to empty (auth disabled)."""
+        s = Settings()
+        assert s.api_secret_key.get_secret_value() == ""
+
+    def test_api_rate_limit_default(self):
+        """api_rate_limit_per_minute should default to 60."""
+        s = Settings()
+        assert s.api_rate_limit_per_minute == 60
+
+    def test_timeout_ge_constraint(self):
+        """Timeouts below 1.0 should raise ValidationError."""
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            Settings(search_timeout_seconds=0.5)
+        with pytest.raises(ValidationError):
+            Settings(llm_timeout_seconds=0.0)
+        with pytest.raises(ValidationError):
+            Settings(delivery_timeout_seconds=0.1)
+        with pytest.raises(ValidationError):
+            Settings(delivery_gateway_timeout_seconds=0.9)

@@ -1,4 +1,4 @@
-﻿"""newsscout.search.normalizer
+"""newsscout.search.normalizer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 URL sanitization, tracking parameter removal, anchor/fragment stripping,
 and canonical GitHub URL standardizer for multi-engine search results.
@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import re
 from typing import Final, Optional, Set
-from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, unquote, unquote_plus, urlencode, urlparse, urlunparse
 
 TRACKING_PARAMS: Final[Set[str]] = {
-    # UTM campaign parameters
+    # --- UTM & Core Campaign Tags ---
     "utm_source",
     "utm_medium",
     "utm_campaign",
@@ -21,7 +21,8 @@ TRACKING_PARAMS: Final[Set[str]] = {
     "utm_reader",
     "utm_name",
     "utm_cid",
-    # Ad click identifiers
+    "utm_term_id",
+    # --- Ad Network Click Identifiers ---
     "fbclid",
     "gclid",
     "dclid",
@@ -30,7 +31,17 @@ TRACKING_PARAMS: Final[Set[str]] = {
     "twclid",
     "wbraid",
     "gbraid",
-    # Referral & platform tracking
+    "wickedid",
+    "rb_clickid",
+    "zanpid",
+    "irclickid",
+    "ttclid",
+    "li_fat_id",
+    "s_cid",
+    "sc_cid",
+    "gclsrc",
+    "ef_id",
+    # --- Referral & Social Platform Tags ---
     "ref",
     "ref_src",
     "ref_url",
@@ -40,16 +51,81 @@ TRACKING_PARAMS: Final[Set[str]] = {
     "trk",
     "ocid",
     "igshid",
+    "origin",
+    "partner",
+    "affiliate_id",
+    "aff_platform",
+    "aff_trace_key",
+    "subid",
+    "subid1",
+    "subid2",
+    "subid3",
+    "subid4",
+    "subid5",
+    "curator",
+    # --- Marketing & Email Automation ---
     "mc_cid",
     "mc_eid",
     "_hsenc",
     "_hsmi",
     "vero_id",
+    "vero_conv",
     "mkt_tok",
+    "ml_subscriber",
+    "ml_subscriber_hash",
+    "_openstat",
+    "nr_email_referer",
+    "cmpid",
+    "mbid",
+    "ncid",
+    "ftag",
+    "taid",
+    # --- Syndication & RSS Feeds ---
+    "rss",
+    "feed",
+    "feedname",
+    "feedtype",
+    "sr_share",
+    "xtor",
+    "xtref",
+    # --- Privacy Consent / Redirect Bounces ---
     "guccounter",
     "guce_referrer",
     "guce_referrer_usqp",
+    # --- Analytics & Session Tags ---
+    "_ga",
+    "_gl",
+    "s_kwcid",
 }
+
+# Prefix-based tracking parameter detection (12 prefix families + HubSpot & GA4 variants)
+TRACKING_PREFIXES: Final[tuple[str, ...]] = (
+    "utm_",     # Google Analytics & general campaign tags
+    "pk_",      # Piwik / Matomo analytics
+    "piwik_",   # Piwik legacy
+    "matomo_",  # Matomo campaign & keyword tags
+    "hsa_",     # HubSpot ad tracking
+    "_hs",      # HubSpot email & security tracking
+    "mc_",      # Mailchimp campaign tracking
+    "sc_",      # Snapchat / Adobe campaign tracking
+    "nd_",      # News syndication delivery tags
+    "aff_",     # Affiliate network tracking
+    "wt_",      # Webtrekk analytics
+    "ga_",      # Google Analytics 4 tags
+    "_ga_",     # Google Analytics 4 cross-domain session tags
+    "xtor",     # AT Internet / Piano analytics
+)
+
+
+def is_tracking_param(param_name: str) -> bool:
+    """Checks if a query parameter is a tracking, syndication, or analytics tag."""
+    if not param_name or not isinstance(param_name, str):
+        return False
+    p = param_name.lower()
+    if p in TRACKING_PARAMS:
+        return True
+    return any(p.startswith(prefix) for prefix in TRACKING_PREFIXES)
+
 
 GITHUB_RESERVED_ROOTS: Final[Set[str]] = {
     "about",
@@ -100,13 +176,19 @@ BARE_GITHUB_SLUG_PATTERN: Final[re.Pattern[str]] = re.compile(
 
 
 def _unwrap_search_redirect(url: str) -> str:
-    """Unwraps search engine redirection URLs (e.g. DuckDuckGo uddg)."""
-    if "duckduckgo.com/l/?" in url or "duckduckgo.com/l/?" in url:
+    """Unwraps search engine redirection URLs (e.g. DuckDuckGo uddg).
+
+    Handles:
+    - ``duckduckgo.com/l/?uddg=...`` (standard redirect)
+    - ``r.duckduckgo.com/...?uddg=...`` (y.js redirect format)
+    - URL-encoded ``+`` in the ``uddg`` parameter
+    """
+    if "duckduckgo.com/l/?" in url or "r.duckduckgo.com/" in url:
         try:
             parsed = urlparse(url)
             params = dict(parse_qsl(parsed.query))
             if "uddg" in params and params["uddg"]:
-                return unquote(params["uddg"])
+                return unquote_plus(params["uddg"])
         except Exception:
             pass
     return url
@@ -142,6 +224,21 @@ def clean_and_canonicalize_url(url: str) -> str:
         if owner.lower() not in GITHUB_RESERVED_ROOTS:
             repo_clean = repo.removesuffix(".git").rstrip("/")
             return f"https://github.com/{owner}/{repo_clean}"
+
+    # Detect existing scheme before prepending https://
+    # Reject dangerous non-http(s) schemes early (javascript:, data:, file:, mailto:, etc.)
+    if "://" in url:
+        try:
+            early_parsed = urlparse(url)
+            if early_parsed.scheme and early_parsed.scheme.lower() not in ("http", "https"):
+                return ""
+        except Exception:
+            return ""
+    elif ":" in url.split("/")[0]:
+        # URL has a scheme but no :// (e.g. javascript:alert(1), mailto:user@example.com)
+        potential_scheme = url.split(":")[0].lower()
+        if potential_scheme not in ("http", "https"):
+            return ""
 
     # Handle protocol-relative URL
     if url.startswith("//"):
@@ -198,7 +295,7 @@ def clean_and_canonicalize_url(url: str) -> str:
         kept_params = [
             (k, v)
             for k, v in raw_params
-            if k.lower() not in TRACKING_PARAMS and not k.lower().startswith("utm_")
+            if not is_tracking_param(k)
         ]
         if kept_params:
             kept_params.sort(key=lambda item: item[0])

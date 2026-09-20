@@ -1,4 +1,4 @@
-﻿"""newsscout.filtering
+"""newsscout.filtering
 ~~~~~~~~~~~~~~~~~~~~
 Two-Stage Filtering Pipeline for NewsScout:
 - Stage 1: Deterministic Local Heuristics & Anti-Hype Blacklists
@@ -28,6 +28,18 @@ from newsscout.filtering.stage1 import (
     RUNNABLE_FILENAMES,
     Stage1Filter,
 )
+from newsscout.filtering.dedup import (
+    calculate_text_similarity,
+    deduplicate_against_db,
+    deduplicate_items,
+    extract_shingles,
+    extract_tokens,
+    is_near_duplicate,
+    merge_attributions,
+    normalize_text,
+    pick_primary_item,
+    token_jaccard,
+)
 from newsscout.filtering.stage2 import (
     DecisionCardPayload,
     Stage2EvaluationResponse,
@@ -55,4 +67,14 @@ __all__ = [
     "DecisionCardValidator",
     "CardValidationError",
     "ValidationResult",
+    "calculate_text_similarity",
+    "is_near_duplicate",
+    "deduplicate_items",
+    "deduplicate_against_db",
+    "normalize_text",
+    "extract_tokens",
+    "extract_shingles",
+    "token_jaccard",
+    "merge_attributions",
+    "pick_primary_item",
 ]

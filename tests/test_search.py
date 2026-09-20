@@ -1,4 +1,4 @@
-﻿"""tests/test_search.py
+"""tests/test_search.py
 ~~~~~~~~~~~~~~~~~~~~
 Comprehensive 100% offline mock test suite for NewsScout Milestone 2:
 - Base search protocol, data structures, and exception hierarchy
@@ -867,6 +867,146 @@ class TestMultiSearchAggregator:
         assert item.metadata["source_type"] == "search"
         assert item.metadata["search_query"] == "sglang fast serving"
         assert item.metadata["github_repo"] == "sgl-project/sglang"
+
+
+# ============================================================================
+# 7b. Circuit Breaker Tests (R3)
+# ============================================================================
+
+class TestCircuitBreaker:
+    """Verifies circuit breaker behavior for search providers (R3)."""
+
+    @pytest.mark.asyncio
+    async def test_provider_skipped_after_threshold_failures(self, test_settings: Settings) -> None:
+        """R3: After 3 consecutive failures, the provider is skipped on subsequent calls."""
+        from newsscout.search.aggregator import CircuitBreakerState
+
+        p_failing = MockProvider("flaky", [], fail=True)
+        aggregator = MultiSearchAggregator(
+            providers=[p_failing],
+            settings=test_settings,
+            circuit_failure_threshold=3,
+            circuit_cooldown_seconds=3600,
+        )
+
+        # First 3 calls: provider is active but fails each time
+        for _ in range(3):
+            await aggregator.search("test query")
+
+        state = aggregator.get_circuit_state("flaky")
+        assert state.consecutive_failures == 3
+        assert state.is_open is True
+
+        # 4th call: provider should be in cooldown and skipped
+        results = await aggregator.search("test query")
+        assert results == []  # No results because the only provider is in cooldown
+
+    @pytest.mark.asyncio
+    async def test_healthy_provider_still_returns_results_in_cooldown(self, test_settings: Settings) -> None:
+        """R3: While one provider is in cooldown, results from healthy providers are still returned."""
+        healthy_res = SearchResult("Healthy", "https://github.com/healthy/repo", "Healthy snippet", "searxng")
+        p_healthy = MockProvider("searxng", [healthy_res])
+        p_failing = MockProvider("flaky", [], fail=True)
+
+        aggregator = MultiSearchAggregator(
+            providers=[p_healthy, p_failing],
+            settings=test_settings,
+            circuit_failure_threshold=3,
+            circuit_cooldown_seconds=3600,
+        )
+
+        # Trigger 3 failures on flaky provider
+        for _ in range(3):
+            await aggregator.search("test query")
+
+        assert aggregator.is_provider_in_cooldown("flaky") is True
+        assert aggregator.is_provider_in_cooldown("searxng") is False
+
+        # Next search: flaky is skipped, searxng still returns results
+        results = await aggregator.search("test query")
+        assert len(results) == 1
+        assert results[0].url == "https://github.com/healthy/repo"
+
+    @pytest.mark.asyncio
+    async def test_circuit_resets_after_cooldown_expires(self, test_settings: Settings) -> None:
+        """R3: After the cooldown window expires, the circuit breaker allows the provider to be tried again."""
+        healthy_res = SearchResult("Recovered", "https://github.com/recovered/repo", "Recovered", "flaky")
+        # Provider that fails first, then succeeds
+        p = MockProvider("flaky", [healthy_res], fail=False)
+
+        aggregator = MultiSearchAggregator(
+            providers=[p],
+            settings=test_settings,
+            circuit_failure_threshold=2,
+            circuit_cooldown_seconds=0.1,  # Very short cooldown for testing
+        )
+
+        # Manually trigger 2 failures by temporarily making the provider fail
+        p.fail = True
+        for _ in range(2):
+            await aggregator.search("test query")
+
+        assert aggregator.is_provider_in_cooldown("flaky") is True
+
+        # Wait for cooldown to expire
+        await asyncio.sleep(0.15)
+
+        # Provider should be active again
+        p.fail = False
+        results = await aggregator.search("test query")
+        assert len(results) == 1
+        assert results[0].url == "https://github.com/recovered/repo"
+
+    @pytest.mark.asyncio
+    async def test_circuit_resets_on_success(self, test_settings: Settings) -> None:
+        """R3: A successful call resets the consecutive failure counter."""
+        healthy_res = SearchResult("OK", "https://github.com/ok/repo", "OK", "flaky")
+        p = MockProvider("flaky", [healthy_res])
+
+        aggregator = MultiSearchAggregator(
+            providers=[p],
+            settings=test_settings,
+            circuit_failure_threshold=3,
+            circuit_cooldown_seconds=3600,
+        )
+
+        # 2 failures (below threshold)
+        p.fail = True
+        for _ in range(2):
+            await aggregator.search("test query")
+
+        state = aggregator.get_circuit_state("flaky")
+        assert state.consecutive_failures == 2
+        assert state.is_open is False
+
+        # Now succeed — should reset
+        p.fail = False
+        await aggregator.search("test query")
+
+        state = aggregator.get_circuit_state("flaky")
+        assert state.consecutive_failures == 0
+        assert state.is_open is False
+
+    @pytest.mark.asyncio
+    async def test_timeout_counts_as_failure(self, test_settings: Settings) -> None:
+        """R3: A timeout also triggers circuit breaker failure tracking."""
+        p_slow = MockProvider("slow", [], delay_seconds=2.0)
+
+        aggregator = MultiSearchAggregator(
+            providers=[p_slow],
+            settings=test_settings,
+            timeout_seconds=0.05,
+            circuit_failure_threshold=2,
+            circuit_cooldown_seconds=3600,
+        )
+
+        # 2 timeouts should open the circuit
+        for _ in range(2):
+            await aggregator.search("test query")
+
+        state = aggregator.get_circuit_state("slow")
+        assert state.consecutive_failures == 2
+        assert state.is_open is True
 
 
 # ============================================================================

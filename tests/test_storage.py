@@ -1,4 +1,4 @@
-﻿"""tests/test_storage.py
+"""tests/test_storage.py
 ~~~~~~~~~~~~~~~~~~~~~
 Exhaustive unit test suite for NewsScout storage layer:
 - Database pragmas & WAL enforcement
@@ -63,7 +63,7 @@ class TestDatabasePragmas:
             assert synchronous == 1  # 1 == NORMAL
 
             busy_timeout = conn.execute("PRAGMA busy_timeout;").fetchone()[0]
-            assert busy_timeout == 5000
+            assert busy_timeout == 15000
 
             foreign_keys = conn.execute("PRAGMA foreign_keys;").fetchone()[0]
             assert foreign_keys == 1
@@ -108,7 +108,7 @@ class TestSchemaMigrations:
 
     def test_migration_creates_all_8_tables(self, sync_db_conn: sqlite3.Connection):
         applied = apply_migrations(conn=sync_db_conn)
-        assert applied == [1, 2]
+        assert applied == [1, 2, 3]
 
         cursor = sync_db_conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
@@ -138,6 +138,7 @@ class TestSchemaMigrations:
             "idx_raw_items_source",
             "idx_raw_items_ingested",
             "idx_raw_items_url",
+            "idx_raw_items_ingested_url",
             "idx_stage1_passed",
             "idx_stage1_evaluated",
             "idx_breakthroughs_cat",
@@ -157,12 +158,12 @@ class TestSchemaMigrations:
         assert expected_indexes.issubset(indexes)
 
     def test_migration_is_idempotent(self, sync_db_conn: sqlite3.Connection):
-        assert apply_migrations(conn=sync_db_conn) == [1, 2]
+        assert apply_migrations(conn=sync_db_conn) == [1, 2, 3]
         assert apply_migrations(conn=sync_db_conn) == []
         assert apply_migrations(conn=sync_db_conn) == []
 
         versions = get_applied_versions(sync_db_conn)
-        assert versions == {1, 2}
+        assert versions == {1, 2, 3}
 
     def test_migration_seed_sources(self, sync_db_conn: sqlite3.Connection):
         apply_migrations(conn=sync_db_conn)
@@ -181,8 +182,8 @@ class TestSchemaMigrations:
         apply_migrations(conn=sync_db_conn)
 
         faulty_migration = Migration(
-            version=3,
-            name="003_broken_migration",
+            version=4,
+            name="004_broken_migration",
             up_sql="CREATE TABLE valid_test (id INT); INVALID SQL STATEMENT HERE;",
         )
         monkeypatch.setattr(mig_mod, "MIGRATIONS", mig_mod.MIGRATIONS + [faulty_migration])
@@ -190,8 +191,8 @@ class TestSchemaMigrations:
         with pytest.raises(MigrationError):
             apply_migrations(conn=sync_db_conn)
 
-        # Verify version 3 is NOT recorded in ledger
-        assert get_applied_versions(sync_db_conn) == {1, 2}
+        # Verify version 4 is NOT recorded in ledger
+        assert get_applied_versions(sync_db_conn) == {1, 2, 3}
 
         # Verify table valid_test was completely rolled back
         cursor = sync_db_conn.execute(
@@ -208,7 +209,7 @@ class TestSchemaMigrations:
     @pytest.mark.asyncio
     async def test_async_apply_migrations(self, temp_db: Database):
         applied = await async_apply_migrations(temp_db)
-        assert applied == [1, 2]
+        assert applied == [1, 2, 3]
         applied_again = await async_apply_migrations(temp_db)
         assert applied_again == []
 
@@ -352,7 +353,7 @@ class TestBusyTimeout:
         t.start()
         time.sleep(0.05)  # Ensure conn_a acquired the lock
 
-        # conn_b attempts write with 5000ms busy_timeout
+        # conn_b attempts write with 15000ms busy_timeout
         start_time = time.monotonic()
         conn_b.execute("BEGIN IMMEDIATE;")
         conn_b.execute("INSERT INTO lock_test VALUES (2);")
@@ -380,6 +381,82 @@ class TestBusyTimeout:
         conn_a.execute("ROLLBACK;")
         conn_a.close()
         conn_b.close()
+
+    @pytest.mark.asyncio
+    async def test_parallel_stress_20_threads_no_errors(self, temp_db_path: Path):
+        """R2: 20+ parallel read and write threads complete without sqlite3.OperationalError."""
+        db = Database(temp_db_path, timeout=15.0)
+        await db.initialize()
+
+        # Create a test table
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS stress_test (id INTEGER PRIMARY KEY, thread_id INT, val TEXT);"
+        )
+
+        errors: list[Exception] = []
+
+        async def _write_worker(thread_id: int) -> None:
+            for i in range(10):
+                try:
+                    await db.execute(
+                        "INSERT INTO stress_test (thread_id, val) VALUES (:tid, :val);",
+                        {"tid": thread_id, "val": f"row-{thread_id}-{i}"},
+                    )
+                except Exception as exc:
+                    errors.append(exc)
+
+        async def _read_worker() -> None:
+            for _ in range(20):
+                try:
+                    await db.fetch_all("SELECT * FROM stress_test;")
+                except Exception as exc:
+                    errors.append(exc)
+
+        # Launch 15 writers + 10 readers = 25 concurrent workers
+        writers = [asyncio.create_task(_write_worker(i)) for i in range(15)]
+        readers = [asyncio.create_task(_read_worker()) for _ in range(10)]
+        await asyncio.gather(*writers, *readers)
+
+        assert not errors, f"Concurrent stress test produced errors: {errors}"
+
+        count = await db.fetch_val("SELECT COUNT(*) FROM stress_test;")
+        assert count == 150  # 15 threads × 10 inserts
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_retry_recovers_from_transient_lock(self, temp_db_path: Path):
+        """R2: The retry mechanism recovers from at least one simulated transient lock failure."""
+        from newsscout.storage.db import _retry_write_op
+
+        call_count = 0
+
+        def _flaky_op() -> int:
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise sqlite3.OperationalError("database is locked")
+            return 42
+
+        result = _retry_write_op(_flaky_op, max_retries=3)
+        assert result == 42
+        assert call_count == 2  # First attempt failed, second succeeded
+
+    @pytest.mark.asyncio
+    async def test_retry_does_not_retry_non_lock_errors(self, temp_db_path: Path):
+        """R2: Non-lock OperationalErrors are not retried."""
+        from newsscout.storage.db import _retry_write_op
+
+        call_count = 0
+
+        def _syntax_error_op() -> int:
+            nonlocal call_count
+            call_count += 1
+            raise sqlite3.OperationalError("no such table: nonexistent")
+
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            _retry_write_op(_syntax_error_op, max_retries=3)
+        assert call_count == 1  # Should not retry non-lock errors
 
 
 # ============================================================================

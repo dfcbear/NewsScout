@@ -1,4 +1,4 @@
-﻿"""tests/test_milestone1_adversarial.py
+"""tests/test_milestone1_adversarial.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Empirical Adversarial Challenge Suite for TASK-08 Milestone 1:
 1. Concurrency: Multi-threaded apply_migrations (25+ threads, fresh DB, partially migrated DB, competing locks)
@@ -53,7 +53,7 @@ class TestAdversarialMigration002Concurrency:
 
         Verifies:
         - No 'database is locked' errors or race conditions on table creation.
-        - Exactly migrations [1, 2] applied across all threads.
+        - Exactly migrations [1, 2, 3] applied across all threads.
         - Evolved schema structure (feedback table has user_identifier, not telegram_user_id).
         - PRAGMA integrity_check and foreign_key_check pass with zero errors.
         """
@@ -78,14 +78,14 @@ class TestAdversarialMigration002Concurrency:
             t.join()
 
         assert len(errors) == 0, f"Errors in concurrent apply_migrations on fresh DB: {errors}"
-        # Exactly one thread should have performed the migration [1, 2], others should return []
+        # Exactly one thread should have performed the migration [1, 2, 3], others should return []
         total_applied_migrations = sum(applied_histories, [])
-        assert sorted(total_applied_migrations) == [1, 2]
+        assert sorted(total_applied_migrations) == [1, 2, 3]
 
         # Verify DB schema on disk
         conn = create_connection(db_path, timeout=5.0)
         try:
-            assert get_applied_versions(conn) == {1, 2}
+            assert get_applied_versions(conn) == {1, 2, 3}
             cols = {r[1] for r in conn.execute("PRAGMA table_info(feedback);").fetchall()}
             assert "user_identifier" in cols
             assert "telegram_user_id" not in cols
@@ -146,12 +146,12 @@ class TestAdversarialMigration002Concurrency:
 
         assert len(errors) == 0, f"Errors in concurrent upgrade to Migration 2: {errors}"
         total_applied = sum(applied_histories, [])
-        assert total_applied == [2]
+        assert total_applied == [2, 3]
 
         # Verify data on disk
         verify_conn = create_connection(db_path, timeout=5.0)
         try:
-            assert get_applied_versions(verify_conn) == {1, 2}
+            assert get_applied_versions(verify_conn) == {1, 2, 3}
             rows = verify_conn.execute("SELECT id, breakthrough_id, rating, user_identifier, source, notes FROM feedback ORDER BY id ASC;").fetchall()
             assert len(rows) == 2
             assert tuple(rows[0]) == (1, 10, "hit", "777888", "telegram", "Nice")
@@ -221,7 +221,7 @@ class TestAdversarialMigration002Concurrency:
         # 1. Rollback
         conn.executescript(MIGRATIONS[1].down_sql)
         conn.execute("DELETE FROM schema_migrations WHERE version = 2;")
-        assert get_applied_versions(conn) == {1}
+        assert get_applied_versions(conn) == {1, 3}
 
         v1_rows = conn.execute("SELECT breakthrough_id, rating, telegram_user_id, source FROM feedback ORDER BY id ASC;").fetchall()
         assert len(v1_rows) == 3
@@ -236,7 +236,7 @@ class TestAdversarialMigration002Concurrency:
         # 2. Re-apply Migration 2
         conn.executescript(MIGRATIONS[1].up_sql)
         conn.execute("INSERT INTO schema_migrations (version, name) VALUES (2, '002_multi_messenger_feedback');")
-        assert get_applied_versions(conn) == {1, 2}
+        assert get_applied_versions(conn) == {1, 2, 3}
 
         is_healthy2, diag2 = verify_schema_integrity(conn)
         assert is_healthy2 is True
@@ -353,7 +353,7 @@ class TestAdversarialMigration002Concurrency:
 
         assert len(errors) == 0, f"Errors in concurrent independent connection migrations: {errors}"
         total_applied = sum(applied_results, [])
-        assert sorted(total_applied) == [1, 2]
+        assert sorted(total_applied) == [1, 2, 3]
 
 
 # ============================================================================

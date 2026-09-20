@@ -1,4 +1,4 @@
-﻿"""newsscout.ingestion.pipeline
+"""newsscout.ingestion.pipeline
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Unified ingestion orchestrator that coordinates active ingestion sources,
 normalizes incoming candidate payloads, and performs atomic upserts into
@@ -14,6 +14,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 from newsscout.config import Settings, get_settings
+from newsscout.filtering.dedup import deduplicate_against_db, deduplicate_items
 from newsscout.ingestion.base import BaseIngestionSource
 from newsscout.ingestion.github import GitHubIngestionSource
 from newsscout.ingestion.hackernews import HackerNewsIngestionSource
@@ -78,18 +79,48 @@ class IngestionPipeline:
                 metrics["sources"][src_name] = {"status": "error", "error": err, "items_count": 0}
                 continue
 
-            inserted_count = await self.persist_raw_items(items)
+            # Pre-Stage-1 Deduplication: Intra-batch & Inter-batch token cost protection
+            deduped_items = await self.deduplicate_items(items)
+
+            inserted_count = await self.persist_raw_items(deduped_items)
             await self._update_source_last_poll(src_name)
 
             metrics["sources"][src_name] = {
                 "status": "success",
                 "items_count": len(items),
                 "persisted_count": inserted_count,
+                "deduped_count": len(items) - len(deduped_items),
             }
             metrics["total_inserted_or_updated"] += inserted_count
 
         metrics["completed_at"] = datetime.now(timezone.utc).isoformat()
         return metrics
+
+    async def deduplicate_items(self, items: list[RawItem]) -> list[RawItem]:
+        """Performs intra-batch and inter-batch content deduplication.
+
+        1. Intra-batch deduplication: merges duplicates within the current incoming batch.
+        2. Inter-batch deduplication: queries recent SQLite raw_items, merges attribution
+           into existing records, and drops incoming duplicates before Stage 1 / Stage 2.
+        """
+        if not items or not getattr(self.settings, "dedup_enabled", True):
+            return list(items)
+
+        threshold = getattr(self.settings, "dedup_similarity_threshold", 0.80)
+        lookback_days = getattr(self.settings, "dedup_lookback_days", 7)
+
+        # 1. Intra-batch deduplication
+        deduped = deduplicate_items(items, threshold=threshold)
+
+        # 2. Inter-batch SQLite deduplication
+        deduped = await deduplicate_against_db(
+            deduped,
+            db=self.db,
+            lookback_days=lookback_days,
+            threshold=threshold,
+        )
+
+        return deduped
 
     async def persist_raw_items(self, items: Sequence[RawItem]) -> int:
         """Atomically upserts a batch of RawItems into SQLite raw_items table."""
