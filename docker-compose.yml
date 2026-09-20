@@ -1,0 +1,118 @@
+﻿# docker-compose.yml for NewsScout — Raspberry Pi 5 deployment (ARM64)
+services:
+  newsscout:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: newsscout
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist database, audio files, and preferences on USB-SSD
+      - ./data:/app/data
+    environment:
+      - NEWSSCOUT_HOST=0.0.0.0
+      - NEWSSCOUT_PORT=8000
+      - NEWSSCOUT_DB_PATH=/app/data/ai_scout.db
+      - NEWSSCOUT_AUDIO_OUTPUT_DIR=/app/data/audio
+      - NEWSSCOUT_PREFERENCES_FILE=/app/data/preferences.json
+      # LLM Provider Configuration (Universal OpenAI-compatible or Gemini)
+      - NEWSSCOUT_LLM_PROVIDER=${NEWSSCOUT_LLM_PROVIDER:-gemini}
+      - NEWSSCOUT_LLM_BASE_URL=${NEWSSCOUT_LLM_BASE_URL:-http://localhost:11434/v1}
+      - NEWSSCOUT_LLM_MODEL=${NEWSSCOUT_LLM_MODEL:-llama3.1:8b}
+      - NEWSSCOUT_LLM_API_KEY=${NEWSSCOUT_LLM_API_KEY:-}
+      - NEWSSCOUT_GEMINI_API_KEY=${NEWSSCOUT_GEMINI_API_KEY:-}
+      # Telegram Bot
+      - NEWSSCOUT_TELEGRAM_BOT_TOKEN=${NEWSSCOUT_TELEGRAM_BOT_TOKEN:-}
+      - NEWSSCOUT_TELEGRAM_CHAT_ID=${NEWSSCOUT_TELEGRAM_CHAT_ID:-}
+      # WhatsApp Bridge (WAHA)
+      - NEWSSCOUT_WHATSAPP_ENABLED=${NEWSSCOUT_WHATSAPP_ENABLED:-false}
+      - NEWSSCOUT_WHATSAPP_BRIDGE_URL=${NEWSSCOUT_WHATSAPP_BRIDGE_URL:-http://whatsapp-bridge:3000}
+      - NEWSSCOUT_WHATSAPP_RECIPIENT_ID=${NEWSSCOUT_WHATSAPP_RECIPIENT_ID:-}
+      # Signal Bridge (signal-cli-rest-api)
+      - NEWSSCOUT_SIGNAL_ENABLED=${NEWSSCOUT_SIGNAL_ENABLED:-false}
+      - NEWSSCOUT_SIGNAL_BRIDGE_URL=${NEWSSCOUT_SIGNAL_BRIDGE_URL:-http://signal-bridge:8080}
+      - NEWSSCOUT_SIGNAL_SENDER_NUMBER=${NEWSSCOUT_SIGNAL_SENDER_NUMBER:-}
+      - NEWSSCOUT_SIGNAL_RECIPIENT_ID=${NEWSSCOUT_SIGNAL_RECIPIENT_ID:-}
+      # Search Engines (Zero-Key & Commercial)
+      - NEWSSCOUT_SEARXNG_ENABLED=${NEWSSCOUT_SEARXNG_ENABLED:-true}
+      - NEWSSCOUT_SEARXNG_BASE_URL=${NEWSSCOUT_SEARXNG_BASE_URL:-http://searxng:8080}
+      - NEWSSCOUT_DUCKDUCKGO_ENABLED=${NEWSSCOUT_DUCKDUCKGO_ENABLED:-true}
+      - NEWSSCOUT_TAVILY_API_KEY=${NEWSSCOUT_TAVILY_API_KEY:-}
+      - NEWSSCOUT_EXA_API_KEY=${NEWSSCOUT_EXA_API_KEY:-}
+      - NEWSSCOUT_GITHUB_TOKEN=${NEWSSCOUT_GITHUB_TOKEN:-}
+      # Scheduling
+      - NEWSSCOUT_SCHEDULE_MORNING=07:00
+      - NEWSSCOUT_SCHEDULE_AFTERNOON=16:00
+      - NEWSSCOUT_PIPELINE_INTERVAL_HOURS=2
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8000/api/stats'); exit(0 if r.status_code==200 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Zero-Key Search Sidecar: SearXNG (Optional via profile 'search' or 'all')
+  searxng:
+    image: searxng/searxng:latest
+    container_name: newsscout-searxng
+    restart: unless-stopped
+    profiles:
+      - search
+      - all
+    ports:
+      - "8081:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8081/
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/healthz || exit 0"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # WhatsApp Sidecar: WAHA (WhatsApp HTTP API / Baileys) (Optional via profile 'messengers' or 'all')
+  whatsapp-bridge:
+    image: devlikeapro/waha:latest
+    container_name: newsscout-whatsapp
+    restart: unless-stopped
+    profiles:
+      - messengers
+      - all
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/waha:/app/.sessions
+    environment:
+      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  # Signal Sidecar: signal-cli-rest-api (Optional via profile 'messengers' or 'all')
+  signal-bridge:
+    image: bbernhard/signal-cli-rest-api:latest
+    container_name: newsscout-signal
+    restart: unless-stopped
+    profiles:
+      - messengers
+      - all
+    ports:
+      - "8085:8080"
+    environment:
+      - MODE=json-rpc
+    volumes:
+      - ./data/signal-cli:/home/.local/share/signal-cli
+    deploy:
+      resources:
+        limits:
+          memory: 384M
