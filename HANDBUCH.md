@@ -29,6 +29,7 @@
    - [Chat-Befehle im Telegram-Bot](#chat-befehle-im-telegram-bot)
    - [Quellen-Feinjustierung in der Datenbank](#quellen-feinjustierung-in-der-datenbank)
 5. [Wartung, Backup & Troubleshooting](#5-wartung-backup--troubleshooting)
+   - [System-Updates & Aktualisieren (Git Pull)](#system-updates--aktualisieren-git-pull)
    - [Logs & Status prüfen](#logs--status-prüfen)
    - [Healthcheck & Monitoring](#healthcheck--monitoring)
    - [Datensicherung (SQLite & Preferences)](#datensicherung-sqlite--preferences)
@@ -327,13 +328,13 @@ Tailscale ermöglicht den sicheren Zugriff auf das Dashboard von unterwegs, ohne
 
 ### Schritt 8: NewsScout starten
 
-Starte NewsScout inklusive aller Sidecars (SearXNG, WhatsApp, Signal):
+Baue und starte NewsScout inklusive aller Sidecars (SearXNG, WhatsApp, Signal):
 
 ```bash
-docker compose --profile all up -d
+docker compose --profile all up -d --build
 ```
 
-> **Hinweis**: Ohne `--profile all` startet nur der Kern (`newsscout`) ohne die optionalen Sidecars. Verwende `docker compose --profile all up -d`, um alle Dienste (SearXNG, WhatsApp-Bridge, Signal-Bridge) zu aktivieren.
+> **Hinweis**: Der Schalter `--build` stellt sicher, dass das Python-Image beim ersten Start (sowie nach jedem Code-Update) frisch aus dem lokalen `Dockerfile` gebaut wird. Ohne `--profile all` startet nur der Kern (`newsscout`) ohne die optionalen Sidecars. Verwende `docker compose --profile all up -d --build`, um alle Dienste (SearXNG, WhatsApp-Bridge, Signal-Bridge) zu bauen und zu aktivieren.
 
 Überprüfe den Status der Container:
 
@@ -366,6 +367,21 @@ NewsScout hört im Hintergrund auf deine Nachrichten:
 ---
 
 ## 5. Wartung, Backup & Troubleshooting
+
+### System-Updates & Aktualisieren (Git Pull)
+Wenn du eine neue Version aus GitHub auf deinen Raspberry Pi übernehmen möchtest:
+
+```bash
+cd ~/NewsScout
+
+# 1. Neuesten Code von GitHub abrufen
+git pull
+
+# 2. Container mit den neuen Änderungen neu bauen und im Hintergrund starten
+docker compose --profile all up -d --build
+```
+
+---
 
 ### Logs & Status prüfen
 Echtzeit-Protokolle einsehen:
