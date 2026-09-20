@@ -484,3 +484,17 @@
   14. **newsscout/audio/prompts.py**: Updated feedback reminder line.
   15. **HANDBUCH.md**: Updated lines 331 and 337.
   16. **Tests**: Updated all test files — `test_adversarial_m3.py`, `test_config_v2.py`, `test_dispatcher.py`, `test_gateways.py`, `test_dashboard_v2.py`, `test_storage_v2.py`, `test_milestone1_adversarial.py`, `test_e2e_task8.py` — to remove all WhatsApp references, imports, fixtures, and test cases. Replaced WhatsApp test scenarios with Signal equivalents where multi-channel coverage was needed.
+
+### Test Results (Post-WhatsApp-Removal)
+- Full suite: 857 passed, 0 failed, 1 deselected (pre-existing flaky CPU benchmark).
+- Git: Committed as `0eda7ab`, pushed to `origin/main`.
+
+* `2026-09-21T00:27:00Z` (`@main_agent`): **Telegram Webhook Support Added (Option B)**:
+  User wanted Telegram feedback buttons and slash commands to work. Previously the bot could only SEND (decision cards, digests) but could not RECEIVE messages. Implemented webhook approach (Option B) over polling (Option A).
+  1. **newsscout/config.py**: Added `telegram_webhook_url` and `telegram_webhook_secret` config fields with env var aliases `NEWSSCOUT_TELEGRAM_WEBHOOK_URL` and `NEWSSCOUT_TELEGRAM_WEBHOOK_SECRET`. Added `has_telegram_webhook` property.
+  2. **newsscout/delivery/telegram_bot.py**: Added `set_webhook()`, `delete_webhook()`, and `get_webhook_info()` methods for webhook lifecycle management via Telegram Bot API.
+  3. **newsscout/dashboard/app.py**: Added `POST /api/telegram/webhook` endpoint. Receives incoming Telegram updates (messages, callback queries). Validates `X-Telegram-Bot-Api-Secret-Token` header if secret is configured. Creates `TelegramBot` instance and calls `process_update()`. Returns 200 OK even on processing errors (so Telegram does not retry indefinitely).
+  4. **newsscout/scheduler.py**: `DigestScheduler.start()` now calls `setWebhook` if `has_telegram_webhook` is True. `DigestScheduler.stop()` calls `deleteWebhook` on shutdown.
+  5. **docker-compose.yml**: Added `NEWSSCOUT_TELEGRAM_WEBHOOK_URL` and `NEWSSCOUT_TELEGRAM_WEBHOOK_SECRET` env var passthrough.
+  6. **.env.example**: Added webhook config section with documentation.
+  7. **tests/test_telegram_webhook.py**: 13 new tests covering secret token verification (valid, invalid, missing, no-secret mode), message processing (/help, /start, unauthorized, unknown), callback query processing (feedback, play, playall), and edge cases (empty update, processing error).

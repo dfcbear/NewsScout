@@ -332,6 +332,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "error": "Internal server error while fetching pairing status.",
             }
 
+    # ========================================================================
+    # API Routes — Telegram Webhook (incoming updates from Telegram)
+    # ========================================================================
+
+    @app.post("/api/telegram/webhook")
+    async def api_telegram_webhook(request: Request) -> dict[str, Any]:
+        """Receives incoming Telegram updates (messages, callback queries).
+
+        Telegram sends updates to this endpoint when a webhook is configured.
+        The optional ``X-Telegram-Bot-Api-Secret-Token`` header is verified
+        against the configured secret to prevent spoofed requests.
+        """
+        # Verify secret token if configured
+        webhook_secret = settings.telegram_webhook_secret.get_secret_value().strip()
+        if webhook_secret:
+            provided_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+            if provided_secret != webhook_secret:
+                logger.warning("Telegram webhook: invalid secret token")
+                raise HTTPException(status_code=403, detail="Forbidden")
+
+        body = await request.json()
+
+        # Lazily create a TelegramBot instance for processing
+        from newsscout.delivery.telegram_bot import TelegramBot
+        bot = TelegramBot(settings, db=db, preferences_service=preferences)
+
+        try:
+            async with bot:
+                result = await bot.process_update(body)
+        except Exception:
+            logger.exception("Error processing Telegram update")
+            # Return 200 anyway so Telegram doesn't retry indefinitely
+            return {"ok": False, "error": "processing_error"}
+
+        return {"ok": True, "result": result}
+
     return app
 
 

@@ -1,4 +1,4 @@
-﻿"""newsscout.delivery.telegram_bot
+"""newsscout.delivery.telegram_bot
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Telegram Bot API client for NewsScout delivery.
 """
@@ -77,6 +77,30 @@ class TelegramBot:
         if self._client is None or self._client.is_closed:
             raise RuntimeError("TelegramBot must be used as async context manager")
         return self._client
+
+    # ------------------------------------------------------------------
+    # Webhook management
+    # ------------------------------------------------------------------
+
+    async def set_webhook(self, webhook_url: str, secret: str = "") -> dict[str, Any]:
+        """Registers a webhook URL with Telegram so updates are pushed to us."""
+        payload: dict[str, Any] = {"url": webhook_url, "allowed_updates": ["message", "callback_query"]}
+        if secret:
+            payload["secret_token"] = secret
+        response = await self._post_with_retry("/setWebhook", payload, max_retries=1)
+        logger.info("Telegram webhook set to %s", webhook_url)
+        return response
+
+    async def delete_webhook(self) -> dict[str, Any]:
+        """Removes the Telegram webhook (switches back to getUpdates polling)."""
+        response = await self._post_with_retry("/deleteWebhook", {}, max_retries=1)
+        logger.info("Telegram webhook deleted")
+        return response
+
+    async def get_webhook_info(self) -> dict[str, Any]:
+        """Returns current webhook status from Telegram."""
+        response = await self._post_with_retry("/getWebhookInfo", {}, max_retries=1)
+        return response.get("result", {})
 
     async def send_decision_card(
         self,

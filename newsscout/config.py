@@ -148,6 +148,15 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("NEWSSCOUT_TELEGRAM_CHAT_ID", "TELEGRAM_CHAT_ID"),
     )
+    # Telegram Webhook (optional — enables incoming message/callback reception)
+    telegram_webhook_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("NEWSSCOUT_TELEGRAM_WEBHOOK_URL", "TELEGRAM_WEBHOOK_URL"),
+    )
+    telegram_webhook_secret: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("NEWSSCOUT_TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_WEBHOOK_SECRET"),
+    )
     github_token: SecretStr = Field(
         default=SecretStr(""),
         validation_alias=AliasChoices("NEWSSCOUT_GITHUB_TOKEN", "GITHUB_TOKEN"),
@@ -411,6 +420,14 @@ class Settings(BaseSettings):
         return bool(
             self.telegram_bot_token.get_secret_value().strip()
             and self.telegram_chat_id.strip()
+        )
+
+    @property
+    def has_telegram_webhook(self) -> bool:
+        """Checks whether a Telegram webhook URL is configured for incoming updates."""
+        return bool(
+            self.telegram_webhook_url.strip()
+            and self.telegram_bot_token.get_secret_value().strip()
         )
 
     @property

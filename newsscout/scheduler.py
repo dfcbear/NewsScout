@@ -1,4 +1,4 @@
-﻿"""newsscout.scheduler
+"""newsscout.scheduler
 ~~~~~~~~~~~~~~~~~~~~~~
 APScheduler-based scheduler for twice-daily digest generation.
 """
@@ -87,11 +87,34 @@ class DigestScheduler:
             self.settings.timezone,
         )
 
+        # Register Telegram webhook if configured
+        if self.settings.has_telegram_webhook:
+            try:
+                from newsscout.delivery.telegram_bot import TelegramBot
+                bot = TelegramBot(self.settings, db=self.db)
+                async with bot:
+                    secret = self.settings.telegram_webhook_secret.get_secret_value().strip()
+                    await bot.set_webhook(self.settings.telegram_webhook_url, secret=secret)
+                logger.info("Telegram webhook registered: %s", self.settings.telegram_webhook_url)
+            except Exception as err:
+                logger.warning("Failed to register Telegram webhook: %s", err)
+
     async def stop(self) -> None:
         if self._scheduler and self._scheduler.running:
             self._scheduler.shutdown(wait=False)
             await asyncio.sleep(0.05)
             logger.info("Scheduler stopped")
+
+        # Remove Telegram webhook if it was configured
+        if self.settings.has_telegram_webhook:
+            try:
+                from newsscout.delivery.telegram_bot import TelegramBot
+                bot = TelegramBot(self.settings, db=self.db)
+                async with bot:
+                    await bot.delete_webhook()
+                logger.info("Telegram webhook removed")
+            except Exception as err:
+                logger.warning("Failed to remove Telegram webhook: %s", err)
 
     async def trigger_digest(self, slot: DigestSlot = DigestSlot.MORNING) -> Digest:
         return await self._run_digest_job(slot)
