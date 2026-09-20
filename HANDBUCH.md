@@ -340,11 +340,11 @@ docker compose --profile all up -d --build
 
 ```bash
 docker compose ps
-```
+
 
 NAME        IMAGE               COMMAND                  SERVICE     CREATED        STATUS                 PORTS
 newsscout   newsscout-service   "python -m newsscout.…"  newsscout   1 minute ago   Up 1 minute (healthy)  0.0.0.0:8000->8000/tcp
-
+```
 
 Sobald der Status auf `(healthy)` steht, ist das Dashboard unter `http://<Tailscale-IP>:8000` erreichbar!
 
